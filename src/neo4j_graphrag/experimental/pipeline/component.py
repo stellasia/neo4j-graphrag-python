@@ -45,6 +45,9 @@ class ComponentMeta(abc.ABCMeta):
                 for param in sig.parameters.values()
                 if param.name not in ("self", "kwargs")
             }
+            attrs["anonymous_input_allowed"] = any(
+                param.name == "kwargs" for param in sig.parameters.values()
+            )
             # extract returned fields from the run method return type hint
             return_model = get_type_hints(run_method).get("return")
             if return_model is None:
@@ -76,6 +79,7 @@ class Component(abc.ABC, metaclass=ComponentMeta):
     # DO NOT CHANGE
     component_inputs: dict[str, dict[str, str | bool]]
     component_outputs: dict[str, dict[str, str | bool]]
+    anonymous_input_allowed: bool
 
     @abc.abstractmethod
     async def run(self, *args: Any, **kwargs: Any) -> DataModel:
