@@ -23,6 +23,8 @@ from neo4j_graphrag.exceptions import LLMGenerationError
 from neo4j_graphrag.llm.anthropic_llm import AnthropicLLM
 from neo4j_graphrag.llm.types import LLMResponse
 
+pytestmark = pytest.mark.anthropic
+
 
 @pytest.fixture
 def mock_anthropic() -> Generator[MagicMock, None, None]:
