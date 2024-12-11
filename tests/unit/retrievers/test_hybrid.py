@@ -15,6 +15,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import neo4j
 import pytest
 from neo4j_graphrag.exceptions import (
     EmbeddingRequiredError,
@@ -87,6 +88,7 @@ def test_hybrid_retriever_with_result_format_function(
         embedder,
         result_formatter=result_formatter,
     )
+    retriever.neo4j_version_is_5_23_or_above = True
     retriever.driver.execute_query.return_value = [  # type: ignore
         [neo4j_record],
         None,
@@ -157,9 +159,11 @@ def test_hybrid_cypher_retriever_invalid_database_name(
     assert "Input should be a valid string" in str(exc_info.value)
 
 
+@patch("neo4j_graphrag.retrievers.HybridRetriever._fetch_index_infos")
 @patch("neo4j_graphrag.retrievers.HybridRetriever._verify_version")
 def test_hybrid_search_text_happy_path(
     _verify_version_mock: MagicMock,
+    _fetch_index_infos_mock: MagicMock,
     driver: MagicMock,
     embedder: MagicMock,
     neo4j_record: MagicMock,
@@ -174,12 +178,20 @@ def test_hybrid_search_text_happy_path(
     retriever = HybridRetriever(
         driver, vector_index_name, fulltext_index_name, embedder
     )
+    retriever.neo4j_version_is_5_23_or_above = True
+    retriever._embedding_node_property = (
+        "embedding"  # variable normally filled by fetch_index_infos
+    )
     retriever.driver.execute_query.return_value = [  # type: ignore
         [neo4j_record],
         None,
         None,
     ]
-    search_query, _ = get_search_query(SearchType.HYBRID)
+    search_query, _ = get_search_query(
+        SearchType.HYBRID,
+        embedding_node_property="embedding",
+        neo4j_version_is_5_23_or_above=retriever.neo4j_version_is_5_23_or_above,
+    )
 
     records = retriever.search(query_text=query_text, top_k=top_k)
 
@@ -193,6 +205,7 @@ def test_hybrid_search_text_happy_path(
             "query_vector": embed_query_vector,
         },
         database_=None,
+        routing_=neo4j.RoutingControl.READ,
     )
     embedder.embed_query.assert_called_once_with(query_text)
     assert records == RetrieverResult(
@@ -203,9 +216,11 @@ def test_hybrid_search_text_happy_path(
     )
 
 
+@patch("neo4j_graphrag.retrievers.HybridRetriever._fetch_index_infos")
 @patch("neo4j_graphrag.retrievers.HybridRetriever._verify_version")
 def test_hybrid_search_favors_query_vector_over_embedding_vector(
     _verify_version_mock: MagicMock,
+    _fetch_index_infos_mock: MagicMock,
     driver: MagicMock,
     embedder: MagicMock,
     neo4j_record: MagicMock,
@@ -226,12 +241,16 @@ def test_hybrid_search_favors_query_vector_over_embedding_vector(
         embedder,
         neo4j_database=database,
     )
+    retriever.neo4j_version_is_5_23_or_above = True
     retriever.driver.execute_query.return_value = [  # type: ignore
         [neo4j_record],
         None,
         None,
     ]
-    search_query, _ = get_search_query(SearchType.HYBRID)
+    search_query, _ = get_search_query(
+        SearchType.HYBRID,
+        neo4j_version_is_5_23_or_above=retriever.neo4j_version_is_5_23_or_above,
+    )
 
     retriever.search(query_text=query_text, query_vector=query_vector, top_k=top_k)
 
@@ -245,6 +264,7 @@ def test_hybrid_search_favors_query_vector_over_embedding_vector(
             "query_vector": query_vector,
         },
         database_=database,
+        routing_=neo4j.RoutingControl.READ,
     )
     embedder.embed_query.assert_not_called()
 
@@ -279,9 +299,11 @@ def test_hybrid_search_retriever_search_missing_embedder_for_text(
         )
 
 
+@patch("neo4j_graphrag.retrievers.HybridRetriever._fetch_index_infos")
 @patch("neo4j_graphrag.retrievers.HybridRetriever._verify_version")
 def test_hybrid_retriever_return_properties(
     _verify_version_mock: MagicMock,
+    _fetch_index_infos_mock: MagicMock,
     driver: MagicMock,
     embedder: MagicMock,
     neo4j_record: MagicMock,
@@ -300,12 +322,17 @@ def test_hybrid_retriever_return_properties(
         embedder,
         return_properties,
     )
+    retriever.neo4j_version_is_5_23_or_above = True
     driver.execute_query.return_value = [
         [neo4j_record],
         None,
         None,
     ]
-    search_query, _ = get_search_query(SearchType.HYBRID, return_properties)
+    search_query, _ = get_search_query(
+        SearchType.HYBRID,
+        return_properties,
+        neo4j_version_is_5_23_or_above=retriever.neo4j_version_is_5_23_or_above,
+    )
 
     records = retriever.search(query_text=query_text, top_k=top_k)
 
@@ -320,6 +347,7 @@ def test_hybrid_retriever_return_properties(
             "query_vector": embed_query_vector,
         },
         database_=None,
+        routing_=neo4j.RoutingControl.READ,
     )
     assert records == RetrieverResult(
         items=[
@@ -355,13 +383,16 @@ def test_hybrid_cypher_retrieval_query_with_params(
         retrieval_query,
         embedder,
     )
+    retriever.neo4j_version_is_5_23_or_above = True
     driver.execute_query.return_value = [
         [neo4j_record],
         None,
         None,
     ]
     search_query, _ = get_search_query(
-        SearchType.HYBRID, retrieval_query=retrieval_query
+        SearchType.HYBRID,
+        retrieval_query=retrieval_query,
+        neo4j_version_is_5_23_or_above=retriever.neo4j_version_is_5_23_or_above,
     )
 
     records = retriever.search(
@@ -383,6 +414,7 @@ def test_hybrid_cypher_retrieval_query_with_params(
             "param": "dummy-param",
         },
         database_=None,
+        routing_=neo4j.RoutingControl.READ,
     )
 
     assert records == RetrieverResult(
@@ -419,6 +451,7 @@ def test_hybrid_cypher_retriever_with_result_format_function(
         embedder,
         result_formatter=result_formatter,
     )
+    retriever.neo4j_version_is_5_23_or_above = True
     retriever.driver.execute_query.return_value = [  # type: ignore
         [neo4j_record],
         None,

@@ -15,12 +15,11 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from neo4j_graphrag.exceptions import LLMGenerationError
 from neo4j_graphrag.experimental.components.entity_relation_extractor import (
-    LexicalGraphBuilder,
     LLMEntityRelationExtractor,
     OnError,
     balance_curly_braces,
@@ -29,50 +28,11 @@ from neo4j_graphrag.experimental.components.entity_relation_extractor import (
 from neo4j_graphrag.experimental.components.pdf_loader import DocumentInfo
 from neo4j_graphrag.experimental.components.types import (
     Neo4jGraph,
-    Neo4jNode,
     TextChunk,
     TextChunks,
 )
+from neo4j_graphrag.experimental.pipeline.exceptions import InvalidJSONError
 from neo4j_graphrag.llm import LLMInterface, LLMResponse
-
-
-def test_create_chunk_node_no_metadata() -> None:
-    builder = LexicalGraphBuilder()
-    node = builder.create_chunk_node(
-        chunk=TextChunk(text="text chunk", index=0), chunk_id="10"
-    )
-    assert isinstance(node, Neo4jNode)
-    assert node.id == "10"
-    assert node.properties == {"index": 0, "text": "text chunk"}
-    assert node.embedding_properties == {}
-
-
-def test_create_chunk_node_metadata_no_embedding() -> None:
-    builder = LexicalGraphBuilder()
-    node = builder.create_chunk_node(
-        chunk=TextChunk(text="text chunk", index=0, metadata={"status": "ok"}),
-        chunk_id="10",
-    )
-    assert isinstance(node, Neo4jNode)
-    assert node.id == "10"
-    assert node.properties == {"index": 0, "text": "text chunk", "status": "ok"}
-    assert node.embedding_properties == {}
-
-
-def test_create_chunk_node_metadata_embedding() -> None:
-    builder = LexicalGraphBuilder()
-    node = builder.create_chunk_node(
-        chunk=TextChunk(
-            text="text chunk",
-            index=0,
-            metadata={"status": "ok", "embedding": [1, 2, 3]},
-        ),
-        chunk_id="10",
-    )
-    assert isinstance(node, Neo4jNode)
-    assert node.id == "10"
-    assert node.properties == {"index": 0, "text": "text chunk", "status": "ok"}
-    assert node.embedding_properties == {"embedding": [1, 2, 3]}
 
 
 @pytest.mark.asyncio
@@ -122,9 +82,9 @@ async def test_extractor_happy_path_no_entities_no_lexical_graph() -> None:
     )
     chunks = TextChunks(chunks=[TextChunk(text="some text", index=0)])
     document_info = DocumentInfo(path="path")
-    result = await extractor.run(chunks=chunks, document_info=document_info)
-    assert result.nodes == []
-    assert result.relationships == []
+    graph = await extractor.run(chunks=chunks, document_info=document_info)
+    assert graph.nodes == []
+    assert graph.relationships == []
 
 
 @pytest.mark.asyncio
@@ -144,12 +104,12 @@ async def test_extractor_happy_path_non_empty_result() -> None:
     assert len(result.nodes) == 3
     doc = result.nodes[0]
     assert doc.label == "Document"
-    entity = result.nodes[1]
+    chunk_entity = result.nodes[1]
+    assert chunk_entity.label == "Chunk"
+    entity = result.nodes[2]
     assert entity.id.endswith("0:0")
     assert entity.label == "Person"
     assert entity.properties == {"chunk_index": 0}
-    chunk_entity = result.nodes[2]
-    assert chunk_entity.label == "Chunk"
     assert len(result.relationships) == 2
     assert result.relationships[0].type == "FROM_DOCUMENT"
     assert result.relationships[0].start_node_id.endswith(":0")
@@ -185,16 +145,17 @@ async def test_extractor_llm_ainvoke_failed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_extractor_llm_badly_formatted_json() -> None:
+async def test_extractor_llm_unfixable_json() -> None:
     llm = MagicMock(spec=LLMInterface)
     llm.ainvoke.return_value = LLMResponse(
-        content='{"nodes": [{"id": "0", "label": "Person", "properties": {}}], "relationships": [}'
+        content='{"nodes": [{"id": "0", "label": "Person", "properties": {}}], "relationships": }'
     )
 
     extractor = LLMEntityRelationExtractor(
         llm=llm,
     )
     chunks = TextChunks(chunks=[TextChunk(text="some text", index=0)])
+
     with pytest.raises(LLMGenerationError):
         await extractor.run(chunks=chunks)
 
@@ -218,7 +179,7 @@ async def test_extractor_llm_invalid_json() -> None:
 
 
 @pytest.mark.asyncio
-async def test_extractor_llm_badly_formatted_json_do_not_raise() -> None:
+async def test_extractor_llm_badly_formatted_json_gets_fixed() -> None:
     llm = MagicMock(spec=LLMInterface)
     llm.ainvoke.return_value = LLMResponse(
         content='{"nodes": [{"id": "0", "label": "Person", "properties": {}}], "relationships": [}'
@@ -231,7 +192,11 @@ async def test_extractor_llm_badly_formatted_json_do_not_raise() -> None:
     )
     chunks = TextChunks(chunks=[TextChunk(text="some text", index=0)])
     res = await extractor.run(chunks=chunks)
-    assert res.nodes == []
+
+    assert len(res.nodes) == 1
+    assert res.nodes[0].label == "Person"
+    assert res.nodes[0].properties == {"chunk_index": 0}
+    assert res.nodes[0].embedding_properties is None
     assert res.relationships == []
 
 
@@ -244,6 +209,14 @@ async def test_extractor_custom_prompt() -> None:
     chunks = TextChunks(chunks=[TextChunk(text="some text", index=0)])
     await extractor.run(chunks=chunks)
     llm.ainvoke.assert_called_once_with("this is my prompt")
+
+
+def test_fix_invalid_json_empty_result() -> None:
+    json_string = "invalid json"
+
+    with patch("json_repair.repair_json", return_value=""):
+        with pytest.raises(InvalidJSONError):
+            fix_invalid_json(json_string)
 
 
 def test_fix_unquoted_keys() -> None:

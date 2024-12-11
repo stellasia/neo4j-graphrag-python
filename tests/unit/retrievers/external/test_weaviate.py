@@ -80,6 +80,7 @@ def test_text_search_remote_vector_store_happy_path(driver: MagicMock) -> None:
             "id_property": "sync_id",
         },
         database_=None,
+        routing_=neo4j.RoutingControl.READ,
     )
     assert records == RetrieverResult(
         items=[
@@ -146,6 +147,7 @@ def test_text_search_remote_vector_store_return_properties(driver: MagicMock) ->
             "id_property": "sync_id",
         },
         database_=None,
+        routing_=neo4j.RoutingControl.READ,
     )
     assert records == RetrieverResult(
         items=[
@@ -193,6 +195,7 @@ def test_text_search_remote_vector_store_retrieval_query(driver: MagicMock) -> N
             "id_property": "sync_id",
         },
         database_=None,
+        routing_=neo4j.RoutingControl.READ,
     )
 
     assert records == RetrieverResult(
@@ -225,7 +228,7 @@ def test_match_query_with_return_properties() -> None:
         "WITH match_param[0] AS match_id_value, match_param[1] AS score "
         "MATCH (node) "
         "WHERE node[$id_property] = match_id_value "
-        "RETURN node {.name, .age} as node, score"
+        "RETURN node {.name, .age} AS node, labels(node) AS nodeLabels, elementId(node) AS elementId, elementId(node) AS id, score"
     )
     assert match_query.strip() == expected.strip()
 

@@ -13,26 +13,25 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 import abc
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import neo4j
 
 from neo4j_graphrag.experimental.components.types import ResolutionStats
 from neo4j_graphrag.experimental.pipeline import Component
-from neo4j_graphrag.utils import execute_query
 
 
 class EntityResolver(Component, abc.ABC):
     """Entity resolution base class
 
     Args:
-        driver (neo4j.driver): The Neo4j driver to connect to the database.
+        driver (neo4j.Driver): The Neo4j driver to connect to the database.
         filter_query (Optional[str]): Cypher query to select the entities to resolve. By default, all nodes with __Entity__ label are used
     """
 
     def __init__(
         self,
-        driver: Union[neo4j.Driver, neo4j.AsyncDriver],
+        driver: neo4j.Driver,
         filter_query: Optional[str] = None,
     ) -> None:
         self.driver = driver
@@ -47,23 +46,23 @@ class SinglePropertyExactMatchResolver(EntityResolver):
     """Resolve entities with same label and exact same property (default is "name").
 
     Args:
-        driver (neo4j.driver): The Neo4j driver to connect to the database.
+        driver (neo4j.Driver): The Neo4j driver to connect to the database.
         filter_query (Optional[str]): To reduce the resolution scope, add a Cypher WHERE clause.
         resolve_property (str): The property that will be compared (default: "name"). If values match exactly, entities are merged.
-        neo4j_database (Optional[str]): The name of the Neo4j database to write to. Defaults to 'neo4j' if not provided.
+        neo4j_database (Optional[str]): The name of the Neo4j database. If not provided, this defaults to the server's default database ("neo4j" by default) (`see reference to documentation <https://neo4j.com/docs/operations-manual/current/database-administration/#manage-databases-default>`_).
 
     Example:
 
     .. code-block:: python
 
-        from neo4j import AsyncGraphDatabase
+        from neo4j import GraphDatabase
         from neo4j_graphrag.experimental.components.resolver import SinglePropertyExactMatchResolver
 
         URI = "neo4j://localhost:7687"
         AUTH = ("neo4j", "password")
         DATABASE = "neo4j"
 
-        driver = AsyncGraphDatabase.driver(URI, auth=AUTH, database=DATABASE)
+        driver = GraphDatabase.driver(URI, auth=AUTH)
         resolver = SinglePropertyExactMatchResolver(driver=driver, neo4j_database=DATABASE)
         await resolver.run()  # no expected parameters
 
@@ -71,14 +70,14 @@ class SinglePropertyExactMatchResolver(EntityResolver):
 
     def __init__(
         self,
-        driver: Union[neo4j.Driver, neo4j.AsyncDriver],
+        driver: neo4j.Driver,
         filter_query: Optional[str] = None,
         resolve_property: str = "name",
         neo4j_database: Optional[str] = None,
     ) -> None:
         super().__init__(driver, filter_query)
         self.resolve_property = resolve_property
-        self.database = neo4j_database
+        self.neo4j_database = neo4j_database
 
     async def run(self) -> ResolutionStats:
         """Resolve entities based on the following rule:
@@ -94,10 +93,9 @@ class SinglePropertyExactMatchResolver(EntityResolver):
         if self.filter_query:
             match_query += self.filter_query
         stat_query = f"{match_query} RETURN count(entity) as c"
-        records = await execute_query(
-            self.driver,
+        records, _, _ = self.driver.execute_query(
             stat_query,
-            database_=self.database,
+            database_=self.neo4j_database,
         )
         number_of_nodes_to_resolve = records[0].get("c")
         if number_of_nodes_to_resolve == 0:
@@ -130,10 +128,8 @@ class SinglePropertyExactMatchResolver(EntityResolver):
             "YIELD node "
             "RETURN count(node) as c "
         )
-        records = await execute_query(
-            self.driver,
-            merge_nodes_query,
-            database_=self.database,
+        records, _, _ = self.driver.execute_query(
+            merge_nodes_query, database_=self.neo4j_database
         )
         number_of_created_nodes = records[0].get("c")
         return ResolutionStats(

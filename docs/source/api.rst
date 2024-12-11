@@ -51,6 +51,21 @@ TextChunkEmbedder
 .. autoclass:: neo4j_graphrag.experimental.components.embedder.TextChunkEmbedder
     :members: run
 
+LexicalGraphBuilder
+===================
+
+.. autoclass:: neo4j_graphrag.experimental.components.lexical_graph.LexicalGraphBuilder
+    :members:
+    :exclude-members: component_inputs, component_outputs
+
+
+Neo4jChunkReader
+================
+
+.. autoclass:: neo4j_graphrag.experimental.components.neo4j_reader.Neo4jChunkReader
+    :members:
+    :exclude-members: component_inputs, component_outputs
+
 SchemaBuilder
 =============
 
@@ -62,7 +77,7 @@ EntityRelationExtractor
 
 .. autoclass:: neo4j_graphrag.experimental.components.entity_relation_extractor.EntityRelationExtractor
     :members:
-    :undoc-members: component_inputs, component_outputs
+    :exclude-members: component_inputs, component_outputs
 
 LLMEntityRelationExtractor
 ==========================
@@ -80,15 +95,15 @@ SinglePropertyExactMatchResolver
 
 .. _pipeline-section:
 
-********
-Pipeline
-********
+*********
+Pipelines
+*********
 
 Pipeline
 ========
 
 .. autoclass:: neo4j_graphrag.experimental.pipeline.Pipeline
-    :members: run, add_component, connect, get_pygraphviz_graph
+    :members: run, add_component, connect, draw
 
 SimpleKGPipeline
 ================
@@ -325,6 +340,11 @@ Database Interaction
 
 .. autofunction:: neo4j_graphrag.indexes.async_upsert_vector_on_relationship
 
+.. autofunction:: neo4j_graphrag.schema.get_structured_schema
+
+.. autofunction:: neo4j_graphrag.schema.get_schema
+
+
 ******
 Errors
 ******
@@ -364,6 +384,8 @@ Errors
 
   * :class:`neo4j_graphrag.experimental.pipeline.exceptions.PipelineStatusUpdateError`
 
+  * :class:`neo4j_graphrag.experimental.pipeline.exceptions.InvalidJSONError`
+
 
 Neo4jGraphRagError
 ==================
@@ -390,6 +412,13 @@ FilterValidationError
 =====================
 
 .. autoclass:: neo4j_graphrag.exceptions.FilterValidationError
+   :show-inheritance:
+
+
+EmbeddingsGenerationError
+========================
+
+.. autoclass:: neo4j_graphrag.exceptions.EmbeddingsGenerationError
    :show-inheritance:
 
 
@@ -481,4 +510,11 @@ PipelineStatusUpdateError
 =========================
 
 .. autoclass:: neo4j_graphrag.experimental.pipeline.exceptions.PipelineStatusUpdateError
+   :show-inheritance:
+
+
+InvalidJSONError
+================
+
+.. autoclass:: neo4j_graphrag.experimental.pipeline.exceptions.InvalidJSONError
    :show-inheritance:

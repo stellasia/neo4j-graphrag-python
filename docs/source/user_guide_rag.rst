@@ -78,6 +78,7 @@ If OpenAI cannot be used directly, there are a few available alternatives:
 - Use Azure OpenAI (GPT...).
 - Use Google VertexAI (Gemini...).
 - Use Anthropic LLM (Claude...).
+- Use Mistral LLM
 - Use Cohere.
 - Use a local Ollama model.
 - Implement a custom interface.
@@ -101,7 +102,7 @@ It is possible to use Azure OpenAI switching to the `AzureOpenAILLM` class:
     )
     llm.invoke("say something")
 
-Check the OpenAI Python client [documentation](https://github.com/openai/openai-python?tab=readme-ov-file#microsoft-azure-openai)
+Check the OpenAI Python client `documentation <https://github.com/openai/openai-python?tab=readme-ov-file#microsoft-azure-openai>`_.
 to learn more about the configuration.
 
 .. note::
@@ -162,6 +163,31 @@ To use Anthropic, instantiate the `AnthropicLLM` class:
     `pip install anthropic`
 
 See :ref:`anthropicllm`.
+
+
+Using MistralAI LLM
+-------------------
+
+To use MistralAI, instantiate the `MistralAILLM` class:
+
+.. code:: python
+
+    from neo4j_graphrag.llm import MistralAILLM
+
+    llm = MistralAILLM(
+        model_name="mistral-small-latest",
+        api_key=api_key,  # can also set `MISTRAL_API_KEY` in env vars
+    )
+    llm.invoke("say something")
+
+
+.. note::
+
+    In order to run this code, the `mistralai` Python package needs to be installed:
+    `pip install mistralai`
+
+See :ref:`mistralaillm`.
+
 
 
 Using Cohere LLM
@@ -740,7 +766,7 @@ be provided when instantiating the retriever:
 
 See :ref:`hybridretriever`.
 
-Also note that there is an helper function to create a full-text index (see `the API documentation <create-fulltext-index>`_).
+Also note that there is an helper function to create a full-text index  (see :ref:`the API documentation<create-fulltext-index>`).
 
 .. _hybrid-cypher-retriever-user-guide:
 

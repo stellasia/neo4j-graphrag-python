@@ -14,6 +14,7 @@
 #  limitations under the License.
 from __future__ import annotations
 
+import warnings
 from typing import Any, Optional
 
 from neo4j_graphrag.filters import get_metadata_filter
@@ -55,6 +56,20 @@ UPSERT_NODE_QUERY = (
     "RETURN elementId(n)"
 )
 
+UPSERT_NODE_QUERY_VARIABLE_SCOPE_CLAUSE = (
+    "UNWIND $rows AS row "
+    "CREATE (n:__KGBuilder__ {id: row.id}) "
+    "SET n += row.properties "
+    "WITH n, row CALL apoc.create.addLabels(n, row.labels) YIELD node "
+    "WITH node as n, row CALL (n, row) { "
+    "WITH n, row WITH n, row WHERE row.embedding_properties IS NOT NULL "
+    "UNWIND keys(row.embedding_properties) as emb "
+    "CALL db.create.setNodeVectorProperty(n, emb, row.embedding_properties[emb]) "
+    "RETURN count(*) as nbEmb "
+    "} "
+    "RETURN elementId(n)"
+)
+
 UPSERT_RELATIONSHIP_QUERY = (
     "UNWIND $rows as row "
     "MATCH (start:__KGBuilder__ {id: row.start_node_id}) "
@@ -69,9 +84,24 @@ UPSERT_RELATIONSHIP_QUERY = (
     "RETURN elementId(rel)"
 )
 
+
+UPSERT_RELATIONSHIP_QUERY_VARIABLE_SCOPE_CLAUSE = (
+    "UNWIND $rows as row "
+    "MATCH (start:__KGBuilder__ {id: row.start_node_id}) "
+    "MATCH (end:__KGBuilder__ {id: row.end_node_id}) "
+    "WITH start, end, row "
+    "CALL apoc.merge.relationship(start, row.type, {}, row.properties, end, row.properties) YIELD rel  "
+    "WITH rel, row CALL (rel, row) { "
+    "WITH rel, row WITH rel, row WHERE row.embedding_properties IS NOT NULL "
+    "UNWIND keys(row.embedding_properties) as emb "
+    "CALL db.create.setRelationshipVectorProperty(rel, emb, row.embedding_properties[emb]) "
+    "} "
+    "RETURN elementId(rel)"
+)
+
 UPSERT_VECTOR_ON_NODE_QUERY = (
     "MATCH (n) "
-    "WHERE elementId(n) = $id "
+    "WHERE elementId(n) = $node_element_id "
     "WITH n "
     "CALL db.create.setNodeVectorProperty(n, $embedding_property, $vector) "
     "RETURN n"
@@ -79,26 +109,40 @@ UPSERT_VECTOR_ON_NODE_QUERY = (
 
 UPSERT_VECTOR_ON_RELATIONSHIP_QUERY = (
     "MATCH ()-[r]->() "
-    "WHERE elementId(r) = $id "
+    "WHERE elementId(r) = $rel_element_id "
     "WITH r "
     "CALL db.create.setRelationshipVectorProperty(r, $embedding_property, $vector) "
     "RETURN r"
 )
 
 
-def _get_hybrid_query() -> str:
-    return (
-        f"CALL {{ {VECTOR_INDEX_QUERY} "
-        f"WITH collect({{node:node, score:score}}) AS nodes, max(score) AS vector_index_max_score "
-        f"UNWIND nodes AS n "
-        f"RETURN n.node AS node, (n.score / vector_index_max_score) AS score "
-        f"UNION "
-        f"{FULL_TEXT_SEARCH_QUERY} "
-        f"WITH collect({{node:node, score:score}}) AS nodes, max(score) AS ft_index_max_score "
-        f"UNWIND nodes AS n "
-        f"RETURN n.node AS node, (n.score / ft_index_max_score) AS score }} "
-        f"WITH node, max(score) AS score ORDER BY score DESC LIMIT $top_k"
-    )
+def _get_hybrid_query(neo4j_version_is_5_23_or_above: bool) -> str:
+    if neo4j_version_is_5_23_or_above:
+        return (
+            f"CALL () {{ {VECTOR_INDEX_QUERY} "
+            f"WITH collect({{node:node, score:score}}) AS nodes, max(score) AS vector_index_max_score "
+            f"UNWIND nodes AS n "
+            f"RETURN n.node AS node, (n.score / vector_index_max_score) AS score "
+            f"UNION "
+            f"{FULL_TEXT_SEARCH_QUERY} "
+            f"WITH collect({{node:node, score:score}}) AS nodes, max(score) AS ft_index_max_score "
+            f"UNWIND nodes AS n "
+            f"RETURN n.node AS node, (n.score / ft_index_max_score) AS score }} "
+            f"WITH node, max(score) AS score ORDER BY score DESC LIMIT $top_k"
+        )
+    else:
+        return (
+            f"CALL {{ {VECTOR_INDEX_QUERY} "
+            f"WITH collect({{node:node, score:score}}) AS nodes, max(score) AS vector_index_max_score "
+            f"UNWIND nodes AS n "
+            f"RETURN n.node AS node, (n.score / vector_index_max_score) AS score "
+            f"UNION "
+            f"{FULL_TEXT_SEARCH_QUERY} "
+            f"WITH collect({{node:node, score:score}}) AS nodes, max(score) AS ft_index_max_score "
+            f"UNWIND nodes AS n "
+            f"RETURN n.node AS node, (n.score / ft_index_max_score) AS score }} "
+            f"WITH node, max(score) AS score ORDER BY score DESC LIMIT $top_k"
+        )
 
 
 def _get_filtered_vector_query(
@@ -139,6 +183,7 @@ def get_search_query(
     embedding_node_property: Optional[str] = None,
     embedding_dimension: Optional[int] = None,
     filters: Optional[dict[str, Any]] = None,
+    neo4j_version_is_5_23_or_above: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     """Build the search query, including pre-filtering if needed, and return clause.
 
@@ -157,10 +202,15 @@ def get_search_query(
         tuple[str, dict[str, Any]]: query and parameters
 
     """
+    warnings.warn(
+        "The default returned 'id' field in the search results will be removed. Please switch to using 'elementId' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if search_type == SearchType.HYBRID:
         if filters:
             raise Exception("Filters are not supported with Hybrid Search")
-        query = _get_hybrid_query()
+        query = _get_hybrid_query(neo4j_version_is_5_23_or_above)
         params: dict[str, Any] = {}
     elif search_type == SearchType.VECTOR:
         if filters:
@@ -183,7 +233,7 @@ def get_search_query(
     query_tail = get_query_tail(
         retrieval_query,
         return_properties,
-        fallback_return=f"RETURN node {{ .*, `{embedding_node_property}`: null }} AS node, labels(node) AS nodeLabels, elementId(node) AS id, score",
+        fallback_return=f"RETURN node {{ .*, `{embedding_node_property}`: null }} AS node, labels(node) AS nodeLabels, elementId(node) AS elementId, elementId(node) AS id, score",
     )
     return f"{query} {query_tail}", params
 
@@ -209,5 +259,5 @@ def get_query_tail(
         return retrieval_query
     if return_properties:
         return_properties_cypher = ", ".join([f".{prop}" for prop in return_properties])
-        return f"RETURN node {{{return_properties_cypher}}} as node, score"
+        return f"RETURN node {{{return_properties_cypher}}} AS node, labels(node) AS nodeLabels, elementId(node) AS elementId, elementId(node) AS id, score"
     return fallback_return if fallback_return else ""

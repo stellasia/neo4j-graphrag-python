@@ -194,7 +194,7 @@ Install dependencies
 
 .. code:: bash
 
-    poetry install
+    poetry install --all-extras
 
 ***************
 Getting started
@@ -295,10 +295,3 @@ Further information
 
 -   `The official Neo4j Python driver <https://github.com/neo4j/neo4j-python-driver>`_
 -   `Neo4j GenAI integrations <https://neo4j.com/docs/cypher-manual/current/genai-integrations/>`_
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
