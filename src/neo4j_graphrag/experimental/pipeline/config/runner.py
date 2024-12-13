@@ -42,12 +42,15 @@ from neo4j_graphrag.experimental.pipeline.config.pipeline_config import (
     AbstractPipelineConfig,
     PipelineConfig,
 )
+from neo4j_graphrag.experimental.pipeline.config.template_pipeline.rag_pipeline import \
+    SimpleRAGPipelineConfig
 from neo4j_graphrag.experimental.pipeline.config.template_pipeline.simple_kg_builder import (
     SimpleKGPipelineConfig,
 )
 from neo4j_graphrag.experimental.pipeline.config.types import PipelineType
 from neo4j_graphrag.experimental.pipeline.pipeline import PipelineResult
 from neo4j_graphrag.experimental.pipeline.types import PipelineDefinition
+from neo4j_graphrag.generation.types import RagResultModel
 from neo4j_graphrag.utils.logging import prettify
 
 logger = logging.getLogger(__name__)
@@ -68,6 +71,7 @@ class PipelineConfigWrapper(BaseModel):
     config: Union[
         Annotated[PipelineConfig, Tag(PipelineType.NONE)],
         Annotated[SimpleKGPipelineConfig, Tag(PipelineType.SIMPLE_KG_PIPELINE)],
+        Annotated[SimpleRAGPipelineConfig, Tag(PipelineType.SIMPLE_RAG_PIPELINE)],
     ] = Field(discriminator=Discriminator(_get_discriminator_value))
 
     def parse(self, resolved_data: dict[str, Any] | None = None) -> PipelineDefinition:
@@ -136,3 +140,38 @@ class PipelineRunner:
         logger.debug("PIPELINE_RUNNER: cleaning up (closing instantiated drivers...)")
         if self.config:
             await self.config.close()
+
+
+class RagPipelineRunner(PipelineRunner):
+    async def search(self, **kwargs) -> RagResultModel:
+        result = await self.run(kwargs)
+        context = None
+        if kwargs.get("return_context"):
+            context = await self.pipeline.store.get_result_for_component(result.run_id, "retriever")
+            context = context.get("result")
+        return RagResultModel(
+            answer=result.result["generator"]["content"],
+            retriever_result=context,
+        )
+
+
+if __name__ == "__main__":
+    import os
+    import asyncio
+
+    os.environ["NEO4J_URI"] = "neo4j+s://demo.neo4jlabs.com"
+    os.environ["NEO4J_USER"] = "recommendations"
+    os.environ["NEO4J_PASSWORD"] = "recommendations"
+
+    runner = RagPipelineRunner.from_config_file(
+        "src/neo4j_graphrag/experimental/pipeline/config/template_pipeline/simple_rag_pipeline_config.json"
+    )
+    print(
+        asyncio.run(runner.search(
+            query_text="Show me a movie about love",
+            retriever_config={
+                "top_k": 2,
+            },
+            return_context=True,
+        ))
+    )

@@ -24,3 +24,4 @@ class PipelineType(str, enum.Enum):
 
     NONE = "none"
     SIMPLE_KG_PIPELINE = "SimpleKGPipeline"
+    SIMPLE_RAG_PIPELINE = "SimpleRAGPipeline"
