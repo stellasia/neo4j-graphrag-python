@@ -42,8 +42,9 @@ from neo4j_graphrag.experimental.pipeline.config.pipeline_config import (
     AbstractPipelineConfig,
     PipelineConfig,
 )
-from neo4j_graphrag.experimental.pipeline.config.template_pipeline.rag_pipeline import \
-    SimpleRAGPipelineConfig
+from neo4j_graphrag.experimental.pipeline.config.template_pipeline.rag_pipeline import (
+    SimpleRAGPipelineConfig,
+)
 from neo4j_graphrag.experimental.pipeline.config.template_pipeline.simple_kg_builder import (
     SimpleKGPipelineConfig,
 )
@@ -147,7 +148,9 @@ class RagPipelineRunner(PipelineRunner):
         result = await self.run(kwargs)
         context = None
         if kwargs.get("return_context"):
-            context = await self.pipeline.store.get_result_for_component(result.run_id, "retriever")
+            context = await self.pipeline.store.get_result_for_component(
+                result.run_id, "retriever"
+            )
             context = context.get("result")
         return RagResultModel(
             answer=result.result["generator"]["content"],
@@ -156,8 +159,8 @@ class RagPipelineRunner(PipelineRunner):
 
 
 if __name__ == "__main__":
-    import os
     import asyncio
+    import os
 
     os.environ["NEO4J_URI"] = "neo4j+s://demo.neo4jlabs.com"
     os.environ["NEO4J_USER"] = "recommendations"
@@ -167,11 +170,13 @@ if __name__ == "__main__":
         "src/neo4j_graphrag/experimental/pipeline/config/template_pipeline/simple_rag_pipeline_config.json"
     )
     print(
-        asyncio.run(runner.search(
-            query_text="Show me a movie about love",
-            retriever_config={
-                "top_k": 2,
-            },
-            return_context=True,
-        ))
+        asyncio.run(
+            runner.search(
+                query_text="Show me a movie about love",
+                retriever_config={
+                    "top_k": 2,
+                },
+                return_context=True,
+            )
+        )
     )

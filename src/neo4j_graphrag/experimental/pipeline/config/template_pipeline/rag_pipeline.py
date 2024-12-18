@@ -1,13 +1,14 @@
-from typing import ClassVar, Literal, Union, Optional, Any, cast
+from typing import Any, ClassVar, Literal, Optional, Union
 
 from pydantic import ConfigDict
 
 from neo4j_graphrag.experimental.components.rag.generate import Generate
 from neo4j_graphrag.experimental.components.rag.prompt_builder import PromptBuilder
 from neo4j_graphrag.experimental.components.rag.retrievers import RetrieverWrapper
-from neo4j_graphrag.experimental.pipeline.config.object_config import ComponentConfig, T
-from neo4j_graphrag.experimental.pipeline.config.template_pipeline.base import \
-    TemplatePipelineConfig
+from neo4j_graphrag.experimental.pipeline.config.object_config import ComponentConfig
+from neo4j_graphrag.experimental.pipeline.config.template_pipeline.base import (
+    TemplatePipelineConfig,
+)
 from neo4j_graphrag.experimental.pipeline.config.types import PipelineType
 from neo4j_graphrag.experimental.pipeline.types import ConnectionDefinition
 from neo4j_graphrag.generation import RagTemplate
@@ -19,7 +20,7 @@ class RetrieverConfig(ComponentConfig):
     # it is translated into a RetrieverWrapper (which is a Component)
     # in the 'parse' method below
 
-    def parse(self, resolved_data: dict[str, Any] | None = None) -> RetrieverWrapper:
+    def parse(self, resolved_data: Optional[dict[str, Any]] = None) -> RetrieverWrapper:
         retriever = super().parse(resolved_data)
         return RetrieverWrapper(retriever)
 
@@ -36,9 +37,7 @@ class SimpleRAGPipelineConfig(TemplatePipelineConfig):
         PipelineType.SIMPLE_RAG_PIPELINE
     )
 
-    model_config = ConfigDict(
-        arbitrary_types_allowed=True
-    )
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def _get_retriever(self) -> RetrieverWrapper:
         retriever = self.retriever.parse(self._global_data)
@@ -52,17 +51,20 @@ class SimpleRAGPipelineConfig(TemplatePipelineConfig):
         return Generate(llm)
 
     def _get_connections(self) -> list[ConnectionDefinition]:
-        connections = [ConnectionDefinition(
-            start="retriever",
-            end="prompt_builder",
-            input_config={"context": "retriever.result"},
-        ), ConnectionDefinition(
-            start="prompt_builder",
-            end="generator",
-            input_config={
-                "prompt": "prompt_builder.prompt",
-            },
-        )]
+        connections = [
+            ConnectionDefinition(
+                start="retriever",
+                end="prompt_builder",
+                input_config={"context": "retriever.result"},
+            ),
+            ConnectionDefinition(
+                start="prompt_builder",
+                end="generator",
+                input_config={
+                    "prompt": "prompt_builder.prompt",
+                },
+            ),
+        ]
         return connections
 
     def get_run_params(self, user_input: dict[str, Any]) -> dict[str, Any]:
@@ -79,7 +81,6 @@ class SimpleRAGPipelineConfig(TemplatePipelineConfig):
                 "query_text": user_input["query_text"],
                 "examples": user_input.get("examples", ""),
             },
-            "generator": {
-            }
+            "generator": {},
         }
         return run_params
