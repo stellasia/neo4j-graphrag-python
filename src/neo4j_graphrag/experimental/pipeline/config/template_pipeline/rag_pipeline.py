@@ -1,11 +1,11 @@
-from typing import Any, ClassVar, Literal, Optional, Union
+from typing import Any, ClassVar, Literal, Optional, Union, cast
 
 from pydantic import ConfigDict
 
 from neo4j_graphrag.experimental.components.rag.generate import Generate
 from neo4j_graphrag.experimental.components.rag.prompt_builder import PromptBuilder
 from neo4j_graphrag.experimental.components.rag.retrievers import RetrieverWrapper
-from neo4j_graphrag.experimental.pipeline.config.object_config import ComponentConfig
+from neo4j_graphrag.experimental.pipeline.config.object_config import ObjectConfig
 from neo4j_graphrag.experimental.pipeline.config.template_pipeline.base import (
     TemplatePipelineConfig,
 )
@@ -15,13 +15,14 @@ from neo4j_graphrag.generation import RagTemplate
 from neo4j_graphrag.retrievers.base import Retriever
 
 
-class RetrieverConfig(ComponentConfig):
-    INTERFACE = Retriever  # the result of _get_class is a Retriever
+class RetrieverConfig(ObjectConfig[RetrieverWrapper]):
+    INTERFACE = Retriever
+    # the result of _get_class is a Retriever
     # it is translated into a RetrieverWrapper (which is a Component)
     # in the 'parse' method below
 
     def parse(self, resolved_data: Optional[dict[str, Any]] = None) -> RetrieverWrapper:
-        retriever = super().parse(resolved_data)
+        retriever = cast(Retriever, super().parse(resolved_data))
         return RetrieverWrapper(retriever)
 
 
@@ -44,6 +45,8 @@ class SimpleRAGPipelineConfig(TemplatePipelineConfig):
         return retriever
 
     def _get_prompt_builder(self) -> PromptBuilder:
+        if isinstance(self.prompt_template, str):
+            return PromptBuilder(RagTemplate(template=self.prompt_template))
         return PromptBuilder(self.prompt_template)
 
     def _get_generator(self) -> Generate:
