@@ -144,7 +144,7 @@ class PipelineRunner:
 
 
 class RagPipelineRunner(PipelineRunner):
-    async def search(self, **kwargs) -> RagResultModel:
+    async def search(self, **kwargs: Any) -> RagResultModel:
         result = await self.run(kwargs)
         context = None
         if kwargs.get("return_context"):
