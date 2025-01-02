@@ -12,16 +12,23 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-import enum
+from typing import Any
+
+from neo4j_graphrag.experimental.pipeline import Component, DataModel
+from neo4j_graphrag.generation import PromptTemplate
 
 
-class PipelineType(str, enum.Enum):
-    """Pipeline type:
+class PromptData(DataModel):
+    inputs: dict[str, Any]
 
-    NONE => Pipeline
-    SIMPLE_KG_PIPELINE ~> SimpleKGPipeline
-    """
 
-    NONE = "none"
-    SIMPLE_KG_PIPELINE = "SimpleKGPipeline"
-    SIMPLE_RAG_PIPELINE = "SimpleRAGPipeline"
+class PromptResult(DataModel):
+    prompt: str
+
+
+class PromptBuilder(Component):
+    def __init__(self, template: PromptTemplate):
+        self.template = template
+
+    async def run(self, **kwargs: Any) -> PromptResult:
+        return PromptResult(prompt=self.template.format(**kwargs))
