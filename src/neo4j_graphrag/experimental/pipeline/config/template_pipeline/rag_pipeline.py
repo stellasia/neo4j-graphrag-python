@@ -1,6 +1,6 @@
 from typing import Any, ClassVar, Literal, Optional, Union, cast
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, RootModel
 
 from neo4j_graphrag.experimental.components.rag.generate import Generate
 from neo4j_graphrag.experimental.components.rag.prompt_builder import PromptBuilder
@@ -26,13 +26,24 @@ class RetrieverConfig(ObjectConfig[RetrieverWrapper]):
         return RetrieverWrapper(retriever)
 
 
+class RetrieverType(RootModel):
+    root: Union[RetrieverWrapper, RetrieverConfig]
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def parse(self, resolved_data: dict[str, Any] | None = None) -> RetrieverWrapper:
+        if isinstance(self.root, RetrieverWrapper):
+            return self.root
+        return self.root.parse(resolved_data)
+
+
 class SimpleRAGPipelineConfig(TemplatePipelineConfig):
     COMPONENTS: ClassVar[list[str]] = [
         "retriever",
         "prompt_builder",
         "generator",
     ]
-    retriever: RetrieverConfig
+    retriever: RetrieverType
     prompt_template: Union[RagTemplate, str] = RagTemplate()
     template_: Literal[PipelineType.SIMPLE_RAG_PIPELINE] = (
         PipelineType.SIMPLE_RAG_PIPELINE

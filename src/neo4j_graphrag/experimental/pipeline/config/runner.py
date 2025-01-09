@@ -172,7 +172,7 @@ if __name__ == "__main__":
     print(
         asyncio.run(
             runner.search(
-                query_text="Show me a movie about love",
+                query_text="Recommend a Christmas movie",
                 retriever_config={
                     "top_k": 2,
                 },
