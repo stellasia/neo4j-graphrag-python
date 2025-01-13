@@ -152,6 +152,27 @@ class BaseOpenAILLM(LLMInterface, abc.ABC):
         except self.openai.OpenAIError as e:
             raise LLMGenerationError(e)
 
+    def parse(
+        self,
+        input: str,
+        message_history: Optional[list[LLMMessage]] = None,
+        system_instruction: Optional[str] = None,
+        response_format: Optional[Any] = None,  # TODO: type to be defined
+    ) -> LLMResponse:
+        if "response_format" in self.model_name:
+            raise ValueError()  # TODO: deal with this case, maybe raising error is not the best option
+        try:
+            response = self.client.beta.chat.completions.parse(
+                messages=self.get_messages(input, message_history, system_instruction),
+                model=self.model_name,
+                response_format=response_format,
+                **self.model_params,
+            )
+            content = response.choices[0].message.content or ""
+            return LLMResponse(content=content)
+        except self.openai.OpenAIError as e:
+            raise LLMGenerationError(e)
+
 
 class OpenAILLM(BaseOpenAILLM):
     def __init__(

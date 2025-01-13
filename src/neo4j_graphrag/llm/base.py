@@ -82,3 +82,25 @@ class LLMInterface(ABC):
         Raises:
             LLMGenerationError: If anything goes wrong.
         """
+
+    @abstractmethod
+    def parse(
+        self,
+        input: str,
+        message_history: Optional[list[LLMMessage]] = None,
+        system_instruction: Optional[str] = None,
+        response_format: Optional[Any] = None,  # type to be defined
+    ) -> LLMResponse:
+        """Sends a text input to the LLM and retrieves a response.
+
+        Args:
+            input (str): Text sent to the LLM.
+            message_history (Optional[list]): A collection previous messages, with each message having a specific role assigned.
+            system_instruction (Optional[str]): An option to override the llm system message for this invokation.
+
+        Returns:
+            LLMResponse: The response from the LLM.
+
+        Raises:
+            LLMGenerationError: If anything goes wrong.
+        """

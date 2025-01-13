@@ -194,6 +194,7 @@ class LLMEntityRelationExtractor(EntityRelationExtractor):
         create_lexical_graph: bool = True,
         on_error: OnError = OnError.RAISE,
         max_concurrency: int = 5,
+        enforce_schema: bool = True,  # for testing purposes, TODO: default should be False
     ) -> None:
         super().__init__(on_error=on_error, create_lexical_graph=create_lexical_graph)
         self.llm = llm  # with response_format={ "type": "json_object" },
@@ -203,6 +204,22 @@ class LLMEntityRelationExtractor(EntityRelationExtractor):
         else:
             template = prompt_template
         self.prompt_template = template
+        self.enforce_schema = enforce_schema
+
+    async def get_llm_response(self, prompt: str) -> LLMResponse:
+        llm_result = await self.llm.ainvoke(prompt)
+        return llm_result
+
+    async def get_structured_llm_response(self, prompt: str) -> LLMResponse:
+        json_schema = Neo4jGraph.model_json_schema()
+        llm_response = self.llm.parse(prompt, response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "Neo4jGraph",
+                "schema": json_schema,
+            },
+        })
+        return llm_response
 
     async def extract_for_chunk(
         self, schema: SchemaConfig, examples: str, chunk: TextChunk
@@ -211,7 +228,10 @@ class LLMEntityRelationExtractor(EntityRelationExtractor):
         prompt = self.prompt_template.format(
             text=chunk.text, schema=schema.model_dump(), examples=examples
         )
-        llm_result = await self.llm.ainvoke(prompt)
+        if self.enforce_schema:
+            llm_result = await self.get_structured_llm_response(prompt)
+        else:
+            llm_result = await self.get_llm_response(prompt)
         try:
             llm_generated_json = fix_invalid_json(llm_result.content)
             result = json.loads(llm_generated_json)

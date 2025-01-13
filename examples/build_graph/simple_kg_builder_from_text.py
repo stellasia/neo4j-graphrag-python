@@ -82,10 +82,13 @@ async def define_and_run_pipeline(
 
 async def main() -> PipelineResult:
     llm = OpenAILLM(
-        model_name="gpt-4o",
+        base_url="http://localhost:11434/v1",
+        api_key="ollama",
+        model_name="llama3:8b",
+        # model_name="gpt-4o",
         model_params={
             "max_tokens": 2000,
-            "response_format": {"type": "json_object"},
+            # "response_format": {"type": "json_object"},
         },
     )
     with neo4j.GraphDatabase.driver(URI, auth=AUTH) as driver:
