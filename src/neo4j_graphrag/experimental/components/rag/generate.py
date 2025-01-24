@@ -12,16 +12,20 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-import enum
+from neo4j_graphrag.experimental.pipeline import Component, DataModel
+from neo4j_graphrag.llm import LLMInterface
 
 
-class PipelineType(str, enum.Enum):
-    """Pipeline type:
+class GenerationResult(DataModel):
+    content: str
 
-    NONE => Pipeline
-    SIMPLE_KG_PIPELINE ~> SimpleKGPipeline
-    """
 
-    NONE = "none"
-    SIMPLE_KG_PIPELINE = "SimpleKGPipeline"
-    SIMPLE_RAG_PIPELINE = "SimpleRAGPipeline"
+class Generator(Component):
+    def __init__(self, llm: LLMInterface) -> None:
+        self.llm = llm
+
+    async def run(self, prompt: str) -> GenerationResult:
+        llm_response = await self.llm.ainvoke(prompt)
+        return GenerationResult(
+            content=llm_response.content,
+        )

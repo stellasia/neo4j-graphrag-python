@@ -1,0 +1,57 @@
+{
+    "version_": "1",
+    "template_": "SimpleRAGPipeline",
+    "neo4j_config": {
+        "params_": {
+            "uri": {
+                "resolver_": "ENV",
+                "var_": "NEO4J_URI"
+            },
+            "user": {
+                "resolver_": "ENV",
+                "var_": "NEO4J_USER"
+            },
+            "password": {
+                "resolver_": "ENV",
+                "var_": "NEO4J_PASSWORD"
+            }
+        }
+    },
+    "llm_config": {
+        "class_": "OpenAILLM",
+        "params_": {
+            "api_key": {
+                "resolver_": "ENV",
+                "var_": "OPENAI_API_KEY"
+            },
+            "model_name": "gpt-4o",
+            "model_params": {
+                "temperature": 0,
+                "max_tokens": 2000
+            }
+        }
+    },
+    "embedder_config": {
+        "class_": "OpenAIEmbeddings",
+        "params_": {
+            "api_key": {
+                "resolver_": "ENV",
+                "var_": "OPENAI_API_KEY"
+            }
+        }
+    },
+    "retriever": {
+        "class_": "VectorRetriever",
+        "params_": {
+            "driver": {
+                "resolver_": "CONFIG_KEY",
+                "key_": "neo4j_config.default"
+            },
+            "index_name": "moviePlotsEmbedding",
+            "embedder": {
+                "resolver_": "CONFIG_KEY",
+                "key_": "embedder_config.default"
+            }
+        }
+    }
+}

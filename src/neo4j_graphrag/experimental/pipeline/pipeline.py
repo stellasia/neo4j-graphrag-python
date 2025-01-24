@@ -363,7 +363,9 @@ class Pipeline(PipelineGraph[TaskPipelineNode, PipelineEdge]):
                     raise PipelineDefinitionError(
                         f"Parameter '{param}' already mapped to {self.param_mapping[task.name][param]}"
                     )
-                if param not in task.component.component_inputs:
+                if param not in task.component.component_inputs and (
+                    not task.component.anonymous_input_allowed
+                ):
                     raise PipelineDefinitionError(
                         f"Parameter '{param}' is not a valid input for component '{task.name}' of type '{task.component.__class__.__name__}'"
                     )
