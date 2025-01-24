@@ -6,6 +6,7 @@ from neo4j_graphrag.experimental.components.rag.generate import Generator
 from neo4j_graphrag.experimental.components.rag.prompt_builder import PromptBuilder
 from neo4j_graphrag.experimental.components.rag.retrievers import RetrieverWrapper
 from neo4j_graphrag.experimental.pipeline import Pipeline
+from neo4j_graphrag.experimental.pipeline.pipeline import PipelineResult
 from neo4j_graphrag.generation import RagTemplate
 from neo4j_graphrag.llm import OpenAILLM
 from neo4j_graphrag.retrievers import VectorRetriever
@@ -16,7 +17,7 @@ DATABASE = "recommendations"
 INDEX_NAME = "moviePlotsEmbedding"
 
 
-async def main() -> None:
+async def main() -> PipelineResult:
     pipeline = Pipeline()
     driver = neo4j.GraphDatabase.driver(URI, auth=AUTH)
     llm = OpenAILLM(model_name="gpt-4o")
@@ -56,6 +57,12 @@ async def main() -> None:
 
     driver.close()
     await llm.async_client.close()
+
+    # context_result = await pipeline.store.get_result_for_component(
+    #     res.run_id, "retriever"
+    # )
+    # context = context_result.get("result")
+    # res.result["context"] = context
     return res
 
 

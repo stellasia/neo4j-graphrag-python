@@ -19,7 +19,7 @@ if __name__ == "__main__":
                     retriever_config={
                         "top_k": 2,
                     },
-                    return_context=True,
+                    # return_context=True,
                 )
             )
         )

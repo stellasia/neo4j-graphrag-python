@@ -156,27 +156,3 @@ class RagPipelineRunner(PipelineRunner):
             answer=result.result["generator"]["content"],
             retriever_result=context,
         )
-
-
-if __name__ == "__main__":
-    import asyncio
-    import os
-
-    os.environ["NEO4J_URI"] = "neo4j+s://demo.neo4jlabs.com"
-    os.environ["NEO4J_USER"] = "recommendations"
-    os.environ["NEO4J_PASSWORD"] = "recommendations"
-
-    runner = RagPipelineRunner.from_config_file(
-        "src/neo4j_graphrag/experimental/pipeline/config/template_pipeline/simple_rag_pipeline_config.json"
-    )
-    print(
-        asyncio.run(
-            runner.search(
-                query_text="Recommend a Christmas movie",
-                retriever_config={
-                    "top_k": 2,
-                },
-                return_context=True,
-            )
-        )
-    )
