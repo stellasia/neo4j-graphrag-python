@@ -1,7 +1,6 @@
 from neo4j_graphrag.experimental.pipeline.config.runner import PipelineRunner
 
 if __name__ == "__main__":
-
     import asyncio
     import os
 
@@ -14,12 +13,14 @@ if __name__ == "__main__":
     )
     print(
         asyncio.run(
-            runner.run(dict(
-                query_text="show me a movie about cats",
-                retriever_config={
-                    "top_k": 2,
-                },
-                return_context=True,
-            ))
+            runner.run(
+                dict(
+                    query_text="show me a movie about cats",
+                    retriever_config={
+                        "top_k": 2,
+                    },
+                    return_context=True,
+                )
+            )
         )
     )

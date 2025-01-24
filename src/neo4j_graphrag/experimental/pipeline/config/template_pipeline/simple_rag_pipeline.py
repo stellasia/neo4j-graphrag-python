@@ -40,7 +40,7 @@ class RetrieverConfig(ObjectConfig[RetrieverWrapper]):
         return RetrieverWrapper(retriever)
 
 
-class RetrieverType(RootModel):
+class RetrieverType(RootModel):  # type: ignore
     root: Union[RetrieverWrapper, RetrieverConfig]
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

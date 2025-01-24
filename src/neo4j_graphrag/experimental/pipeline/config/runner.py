@@ -42,11 +42,11 @@ from neo4j_graphrag.experimental.pipeline.config.pipeline_config import (
     AbstractPipelineConfig,
     PipelineConfig,
 )
-from neo4j_graphrag.experimental.pipeline.config.template_pipeline.simple_rag_pipeline import (
-    SimpleRAGPipelineConfig,
-)
 from neo4j_graphrag.experimental.pipeline.config.template_pipeline.simple_kg_builder import (
     SimpleKGPipelineConfig,
+)
+from neo4j_graphrag.experimental.pipeline.config.template_pipeline.simple_rag_pipeline import (
+    SimpleRAGPipelineConfig,
 )
 from neo4j_graphrag.experimental.pipeline.config.types import PipelineType
 from neo4j_graphrag.experimental.pipeline.pipeline import PipelineResult
