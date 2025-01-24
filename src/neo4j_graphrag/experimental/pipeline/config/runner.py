@@ -42,7 +42,7 @@ from neo4j_graphrag.experimental.pipeline.config.pipeline_config import (
     AbstractPipelineConfig,
     PipelineConfig,
 )
-from neo4j_graphrag.experimental.pipeline.config.template_pipeline.rag_pipeline import (
+from neo4j_graphrag.experimental.pipeline.config.template_pipeline.simple_rag_pipeline import (
     SimpleRAGPipelineConfig,
 )
 from neo4j_graphrag.experimental.pipeline.config.template_pipeline.simple_kg_builder import (

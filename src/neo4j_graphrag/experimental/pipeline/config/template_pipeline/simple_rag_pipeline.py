@@ -1,8 +1,22 @@
+#  Copyright (c) "Neo4j"
+#  Neo4j Sweden AB [https://neo4j.com]
+#  #
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#  #
+#      https://www.apache.org/licenses/LICENSE-2.0
+#  #
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
 from typing import Any, ClassVar, Literal, Optional, Union, cast
 
 from pydantic import ConfigDict, RootModel
 
-from neo4j_graphrag.experimental.components.rag.generate import Generate
+from neo4j_graphrag.experimental.components.rag.generate import Generator
 from neo4j_graphrag.experimental.components.rag.prompt_builder import PromptBuilder
 from neo4j_graphrag.experimental.components.rag.retrievers import RetrieverWrapper
 from neo4j_graphrag.experimental.pipeline.config.object_config import ObjectConfig
@@ -60,9 +74,9 @@ class SimpleRAGPipelineConfig(TemplatePipelineConfig):
             return PromptBuilder(RagTemplate(template=self.prompt_template))
         return PromptBuilder(self.prompt_template)
 
-    def _get_generator(self) -> Generate:
+    def _get_generator(self) -> Generator:
         llm = self.get_default_llm()
-        return Generate(llm)
+        return Generator(llm)
 
     def _get_connections(self) -> list[ConnectionDefinition]:
         connections = [

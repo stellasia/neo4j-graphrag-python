@@ -20,7 +20,7 @@ class GenerationResult(DataModel):
     content: str
 
 
-class Generate(Component):
+class Generator(Component):
     def __init__(self, llm: LLMInterface) -> None:
         self.llm = llm
 

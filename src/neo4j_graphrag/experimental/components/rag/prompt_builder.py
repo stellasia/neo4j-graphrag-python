@@ -18,8 +18,8 @@ from neo4j_graphrag.experimental.pipeline import Component, DataModel
 from neo4j_graphrag.generation import PromptTemplate
 
 
-class PromptData(DataModel):
-    inputs: dict[str, Any]
+# class PromptData(DataModel):
+#     inputs: dict[str, Any]
 
 
 class PromptResult(DataModel):
