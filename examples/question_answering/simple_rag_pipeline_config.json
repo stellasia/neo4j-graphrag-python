@@ -41,7 +41,7 @@
         }
     },
     "retriever": {
-        "class_": "neo4j_graphrag.retrievers.VectorRetriever",
+        "class_": "VectorRetriever",
         "params_": {
             "driver": {
                 "resolver_": "CONFIG_KEY",

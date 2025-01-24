@@ -34,6 +34,8 @@ class RetrieverConfig(ObjectConfig[RetrieverWrapper]):
     # the result of _get_class is a Retriever
     # it is translated into a RetrieverWrapper (which is a Component)
     # in the 'parse' method below
+    DEFAULT_MODULE = "neo4j_graphrag.retrievers"
+    REQUIRED_PARAMS = ["driver"]
 
     def parse(self, resolved_data: Optional[dict[str, Any]] = None) -> RetrieverWrapper:
         retriever = cast(Retriever, super().parse(resolved_data))
