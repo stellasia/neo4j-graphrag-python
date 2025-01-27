@@ -27,9 +27,7 @@ try:
 except ImportError:
     pgv = None
 
-from pydantic import BaseModel
-
-from neo4j_graphrag.experimental.pipeline.component import Component
+from neo4j_graphrag.experimental.pipeline.component import Component, DataModel
 from neo4j_graphrag.experimental.pipeline.exceptions import (
     PipelineDefinitionError,
 )
@@ -93,7 +91,7 @@ class TaskPipelineNode(PipelineNode):
         return res
 
 
-class PipelineResult(BaseModel):
+class PipelineResult(DataModel):
     run_id: str
     result: Any
 
@@ -101,6 +99,19 @@ class PipelineResult(BaseModel):
 class Pipeline(PipelineGraph[TaskPipelineNode, PipelineEdge]):
     """This is the main pipeline, where components
     and their execution order are defined"""
+
+    component_inputs = {
+        "data": {
+            "has_default": False,
+            "annotation": None,
+        }
+    }
+    component_outputs = {
+        "result": {
+            "has_default": False,
+            "annotation": None,
+        }
+    }
 
     def __init__(
         self,
