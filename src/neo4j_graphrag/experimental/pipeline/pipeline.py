@@ -14,6 +14,7 @@
 #  limitations under the License.
 from __future__ import annotations
 
+import asyncio
 import logging
 import warnings
 from collections import defaultdict
@@ -419,4 +420,31 @@ class Pipeline(PipelineGraph[TaskPipelineNode, PipelineEdge]):
         return PipelineResult(
             run_id=orchestrator.run_id,
             result=await self.get_final_results(orchestrator.run_id),
+        )
+
+    async def start(self, data: dict[str, Any]) -> str:
+        logger.debug("PIPELINE START")
+        start_time = default_timer()
+        self.invalidate()
+        self.validate_input_data(data)
+        orchestrator = Orchestrator(self)
+        logger.debug(f"PIPELINE ORCHESTRATOR: {orchestrator.run_id}")
+        t = asyncio.create_task(
+            orchestrator.run(data), name="pipeline_" + orchestrator.run_id
+        )
+        t.start_time = start_time
+        return orchestrator.run_id
+
+    async def wait_until_complete(self, run_id: str) -> PipelineResult:
+        tasks = asyncio.all_tasks()
+        for t in tasks:
+            if t.get_name() == "pipeline_" + run_id:
+                await t
+                end_time = default_timer()
+                logger.debug(
+                    f"PIPELINE FINISHED {run_id} in {end_time - t.start_time}s"
+                )
+        return PipelineResult(
+            run_id=run_id,
+            result=await self.get_final_results(run_id),
         )

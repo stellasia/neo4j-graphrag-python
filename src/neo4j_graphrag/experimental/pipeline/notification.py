@@ -14,6 +14,7 @@
 #  limitations under the License.
 from __future__ import annotations
 
+import asyncio
 import datetime
 from typing import Any, Optional
 
@@ -31,11 +32,11 @@ class EventNotifier:
     def __init__(self, callback: EventCallbackProtocol | None) -> None:
         self.callback = callback
 
-    async def notify(self, event: Event) -> None:
+    def notify(self, event: Event) -> None:
         if self.callback:
-            await self.callback(event)
+            asyncio.create_task(self.callback(event), name="notification")
 
-    async def notify_pipeline_started(
+    def notify_pipeline_started(
         self, run_id: str, input_data: Optional[dict[str, Any]] = None
     ) -> None:
         event = PipelineEvent(
@@ -45,9 +46,9 @@ class EventNotifier:
             message=None,
             payload=input_data,
         )
-        await self.notify(event)
+        self.notify(event)
 
-    async def notify_pipeline_finished(
+    def notify_pipeline_finished(
         self, run_id: str, output_data: Optional[dict[str, Any]] = None
     ) -> None:
         event = PipelineEvent(
@@ -57,9 +58,9 @@ class EventNotifier:
             message=None,
             payload=output_data,
         )
-        await self.notify(event)
+        self.notify(event)
 
-    async def notify_task_started(
+    def notify_task_started(
         self,
         run_id: str,
         task_name: str,
@@ -73,9 +74,9 @@ class EventNotifier:
             message=None,
             payload=input_data,
         )
-        await self.notify(event)
+        self.notify(event)
 
-    async def notify_task_finished(
+    def notify_task_finished(
         self,
         run_id: str,
         task_name: str,
@@ -91,4 +92,4 @@ class EventNotifier:
             if output_data and output_data.result
             else None,
         )
-        await self.notify(event)
+        self.notify(event)

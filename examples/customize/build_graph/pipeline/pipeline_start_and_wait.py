@@ -15,23 +15,13 @@ from neo4j_graphrag.experimental.components.text_splitters.fixed_size_splitter i
 )
 from neo4j_graphrag.experimental.pipeline import Pipeline
 from neo4j_graphrag.experimental.pipeline.pipeline import PipelineResult
-from neo4j_graphrag.experimental.pipeline.types import Event
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("neo4j_graphrag")
 logging.basicConfig()
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)
 
 
-async def event_handler(event: Event) -> None:
-    """Function can do anything about the event,
-    here we're just logging it if it's a pipeline-level event.
-    """
-    if event.event_type.is_pipeline_event:
-        await asyncio.sleep(1)  # task can be longish
-        logger.warning(event)
-
-
-async def main(neo4j_driver: neo4j.Driver) -> PipelineResult:
+async def main(neo4j_driver: neo4j.Driver) -> list[PipelineResult]:
     """This is where we define and run the Lexical Graph builder pipeline, instantiating
     a few components:
 
@@ -40,9 +30,7 @@ async def main(neo4j_driver: neo4j.Driver) -> PipelineResult:
     - Lexical Graph Builder: to build the lexical graph, ie creating the chunk nodes and relationships between them
     - KG writer: save the lexical graph to Neo4j
     """
-    pipe = Pipeline(
-        callback=event_handler,
-    )
+    pipe = Pipeline()
     # define the components
     pipe.add_component(
         FixedSizeSplitter(chunk_size=300, chunk_overlap=10, approximate=False),
@@ -84,11 +72,13 @@ async def main(neo4j_driver: neo4j.Driver) -> PipelineResult:
         },
     }
     # run the pipeline
-    res = await pipe.run(pipe_inputs)
-    tasks = asyncio.all_tasks()
-    for t in tasks:
-        if t.get_name() == "notification":
-            await t
+    run_ids = []
+    for _ in range(10):
+        run_id = await pipe.start(pipe_inputs)
+        run_ids.append(run_id)
+    print(run_ids)
+    tasks = [pipe.wait_until_complete(run_id) for run_id in run_ids]
+    res = await asyncio.gather(*tasks)
     return res
 
 
