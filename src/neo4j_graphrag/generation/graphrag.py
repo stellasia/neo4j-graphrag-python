@@ -24,7 +24,7 @@ from neo4j_graphrag.exceptions import (
     RagInitializationError,
     SearchValidationError,
 )
-from neo4j_graphrag.generation.prompts import RagTemplate
+from neo4j_graphrag.generation.prompts import RagTemplate, ChatHistorySummaryTemplate
 from neo4j_graphrag.generation.types import RagInitModel, RagResultModel, RagSearchModel
 from neo4j_graphrag.llm import LLMInterface
 from neo4j_graphrag.llm.types import LLMMessage
@@ -131,18 +131,20 @@ class GraphRAG:
             raise SearchValidationError(e.errors())
         if isinstance(message_history, MessageHistory):
             message_history = message_history.messages
-        query = self._build_query(validated_data.query_text, message_history)
+        query_for_retrieval = self._build_query_for_retrieval(
+            validated_data.query_text, message_history
+        )
         retriever_result: RetrieverResult = self.retriever.search(
-            query_text=query, **validated_data.retriever_config
+            query_text=query_for_retrieval, **validated_data.retriever_config
         )
         context = "\n".join(item.content for item in retriever_result.items)
-        prompt = self.prompt_template.format(
+        answer_generation_prompt = self.prompt_template.format(
             query_text=query_text, context=context, examples=validated_data.examples
         )
         logger.debug(f"RAG: retriever_result={retriever_result}")
-        logger.debug(f"RAG: prompt={prompt}")
+        logger.debug(f"RAG: prompt={answer_generation_prompt}")
         answer = self.llm.invoke(
-            prompt,
+            answer_generation_prompt,
             message_history,
             system_instruction=self.prompt_template.system_instructions,
         )
@@ -151,39 +153,32 @@ class GraphRAG:
             result["retriever_result"] = retriever_result
         return RagResultModel(**result)
 
-    def _build_query(
+    def _build_query_for_retrieval(
         self,
         query_text: str,
         message_history: Optional[List[LLMMessage]] = None,
     ) -> str:
-        summary_system_message = "You are a summarization assistant. Summarize the given text in no more than 300 words."
-        if message_history:
-            summarization_prompt = self._chat_summary_prompt(
-                message_history=message_history
-            )
-            summary = self.llm.invoke(
-                input=summarization_prompt,
-                system_instruction=summary_system_message,
-            ).content
-            return self.conversation_prompt(summary=summary, current_query=query_text)
-        return query_text
+        if not message_history:
+            return query_text
+        history_str = self._format_message_history(query_text, message_history)
+        summarization_template = ChatHistorySummaryTemplate()
+        summarization_prompt = summarization_template.format(
+            history=history_str,
+            max_words=summarization_template.DEFAULT_MAX_WORDS,
+        )
+        summary = self.llm.invoke(
+            input=summarization_prompt,
+            system_instruction=summarization_template.system_instructions,
+        ).content
+        return summary
 
-    def _chat_summary_prompt(self, message_history: List[LLMMessage]) -> str:
+    def _format_message_history(
+        self, query_text: str, message_history: List[LLMMessage]
+    ) -> str:
+        history = list(message_history)  # make a copy of the list
+        history.insert(0, {"role": "user", "content": query_text})
         message_list = [
-            f"{message['role']}: {message['content']}" for message in message_history
+            f"{message['role']}: {message['content']}" for message in history
         ]
-        history = "\n".join(message_list)
-        return f"""
-Summarize the message history:
-
-{history}
-"""
-
-    def conversation_prompt(self, summary: str, current_query: str) -> str:
-        return f"""
-Message Summary:
-{summary}
-
-Current Query:
-{current_query}
-"""
+        history_str = "\n".join(message_list)
+        return history_str

@@ -108,13 +108,7 @@ def test_graphrag_happy_path_with_message_history(
     ]
     res = rag.search("question", message_history)  # type: ignore
 
-    expected_retriever_query_text = """
-Message Summary:
-llm generated summary
-
-Current Query:
-question
-"""
+    expected_retriever_query_text = """llm generated summary"""
 
     first_invocation_input = """
 Summarize the message history:
@@ -304,25 +298,5 @@ user: initial question
 assistant: answer to initial question
 user: second question
 assistant: answer to second question
-"""
-    )
-
-
-def test_conversation_template(retriever_mock: MagicMock, llm: MagicMock) -> None:
-    rag = GraphRAG(
-        retriever=retriever_mock,
-        llm=llm,
-    )
-    prompt = rag.conversation_prompt(
-        summary="llm generated chat summary", current_query="latest question"
-    )
-    assert (
-        prompt
-        == """
-Message Summary:
-llm generated chat summary
-
-Current Query:
-latest question
 """
     )

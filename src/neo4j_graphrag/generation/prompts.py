@@ -200,3 +200,12 @@ Input text:
         text: str = "",
     ) -> str:
         return super().format(text=text, schema=schema, examples=examples)
+
+
+class ChatHistorySummaryTemplate(PromptTemplate):
+    DEFAULT_SYSTEM_INSTRUCTIONS = "You are a summarization assistant."
+    DEFAULT_TEMPLATE = """Summarize the message history. Use no more than {max_words} words.
+
+    {history}
+    """
+    DEFAULT_MAX_WORDS = 300
