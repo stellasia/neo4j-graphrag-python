@@ -209,3 +209,20 @@ class ChatHistorySummaryTemplate(PromptTemplate):
 
 {history}"""
     DEFAULT_MAX_WORDS = 300
+
+
+class QuestionRewriteWithHistoryTemplate(PromptTemplate):
+    DEFAULT_SYSTEM_INSTRUCTIONS = """You are a language assistant. Your task is
+to rewrite a question to make it self-consistent using the information provided in the context."""
+    DEFAULT_TEMPLATE = """Rewrite the user question based on the context.
+
+    Examples:
+    Context: Apollo 13 was directed by Ron Howard.
+    Question: In which year was the movie released?
+    Answer: In which year was Apollo 13 released?
+
+    Context: {context}
+    Question: {question}
+    Answer:
+    """
+    EXPECTED_INPUTS = ["context", "question"]

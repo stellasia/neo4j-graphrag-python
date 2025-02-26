@@ -24,7 +24,10 @@ from neo4j_graphrag.exceptions import (
     RagInitializationError,
     SearchValidationError,
 )
-from neo4j_graphrag.generation.prompts import RagTemplate, ChatHistorySummaryTemplate
+from neo4j_graphrag.generation.prompts import (
+    RagTemplate,
+    QuestionRewriteWithHistoryTemplate,
+)
 from neo4j_graphrag.generation.types import RagInitModel, RagResultModel, RagSearchModel
 from neo4j_graphrag.llm import LLMInterface
 from neo4j_graphrag.llm.types import LLMMessage
@@ -134,6 +137,7 @@ class GraphRAG:
         query_for_retrieval = self._build_query_for_retrieval(
             validated_data.query_text, message_history
         )
+        logger.debug(f"RAG: {query_for_retrieval=}")
         retriever_result: RetrieverResult = self.retriever.search(
             query_text=query_for_retrieval, **validated_data.retriever_config
         )
@@ -143,6 +147,7 @@ class GraphRAG:
         )
         logger.debug(f"RAG: retriever_result={retriever_result}")
         logger.debug(f"RAG: prompt={answer_generation_prompt}")
+        logger.debug(f"RAG: message_history={message_history}")
         answer = self.llm.invoke(
             answer_generation_prompt,
             message_history,
@@ -160,17 +165,16 @@ class GraphRAG:
     ) -> str:
         if not message_history:
             return query_text
-        history_str = self._format_message_history(query_text, message_history)
-        summarization_template = ChatHistorySummaryTemplate()
-        summarization_prompt = summarization_template.format(
-            history=history_str,
-            max_words=summarization_template.DEFAULT_MAX_WORDS,
+        question_rewrite_template = QuestionRewriteWithHistoryTemplate()
+        question_rewrite_prompt = question_rewrite_template.format(
+            context=str(message_history),
+            question=query_text,
         )
-        summary = self.llm.invoke(
-            input=summarization_prompt,
-            system_instruction=summarization_template.system_instructions,
+        new_question = self.llm.invoke(
+            input=question_rewrite_prompt,
+            system_instruction=question_rewrite_template.system_instructions,
         ).content
-        return summary
+        return new_question
 
     def _format_message_history(
         self, query_text: str, message_history: List[LLMMessage]

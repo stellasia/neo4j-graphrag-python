@@ -144,7 +144,8 @@ Answer:
                 message_history,
                 system_instruction="Answer the user question using the provided context.",
             ),
-        ], any_order=False,
+        ],
+        any_order=False,
     )
 
     assert isinstance(res, RagResultModel)
@@ -182,7 +183,9 @@ def test_graphrag_happy_path_with_in_memory_message_history(
 user: initial question
 assistant: answer to initial question
 user: question"""
-    first_invocation_system_instruction = ChatHistorySummaryTemplate.DEFAULT_SYSTEM_INSTRUCTIONS
+    first_invocation_system_instruction = (
+        ChatHistorySummaryTemplate.DEFAULT_SYSTEM_INSTRUCTIONS
+    )
     second_invocation = """Context:
 item content 1
 item content 2
@@ -196,9 +199,7 @@ question
 Answer:
 """
 
-    retriever_mock.search.assert_called_once_with(
-        query_text="llm generated summary"
-    )
+    retriever_mock.search.assert_called_once_with(query_text="llm generated summary")
     assert llm.invoke.call_count == 2
     llm.invoke.assert_has_calls(
         [
@@ -211,7 +212,8 @@ Answer:
                 message_history.messages,
                 system_instruction="Answer the user question using the provided context.",
             ),
-        ], any_order=False,
+        ],
+        any_order=False,
     )
 
     assert isinstance(res, RagResultModel)

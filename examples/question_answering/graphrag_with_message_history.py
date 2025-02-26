@@ -5,10 +5,15 @@ Requires OPENAI_API_KEY to be in the env var.
 """
 
 import neo4j
+import logging
 from neo4j_graphrag.embeddings.openai import OpenAIEmbeddings
 from neo4j_graphrag.generation import GraphRAG
 from neo4j_graphrag.llm import OpenAILLM
 from neo4j_graphrag.retrievers import VectorCypherRetriever
+
+logging.basicConfig()
+logging.getLogger("neo4j_graphrag").setLevel(logging.DEBUG)
+
 
 # Define database credentials
 URI = "neo4j+s://demo.neo4jlabs.com"
@@ -51,9 +56,13 @@ rag = GraphRAG(
 )
 
 questions = [
-    "Who starred in the Apollo 13 movies?",
-    "Who was its director?",
-    "In which year was this movie released?",
+    # "Who starred in the Apollo 13 movies?",
+    # "Who was its director?",
+    # "In which year was this movie released?",
+    "Show me one movie about aliens",
+    "When was this movie released?",
+    "Can you find a more recent one?",
+    "Who are the actors in it?",
 ]
 
 history: list[dict[str, str]] = []
