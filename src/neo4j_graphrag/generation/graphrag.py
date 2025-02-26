@@ -176,7 +176,7 @@ class GraphRAG:
         self, query_text: str, message_history: List[LLMMessage]
     ) -> str:
         history = list(message_history)  # make a copy of the list
-        history.insert(0, {"role": "user", "content": query_text})
+        history.append({"role": "user", "content": query_text})
         message_list = [
             f"{message['role']}: {message['content']}" for message in history
         ]

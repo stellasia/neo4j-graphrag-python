@@ -203,9 +203,9 @@ Input text:
 
 
 class ChatHistorySummaryTemplate(PromptTemplate):
-    DEFAULT_SYSTEM_INSTRUCTIONS = "You are a summarization assistant."
+    DEFAULT_SYSTEM_INSTRUCTIONS = """You are a summarization assistant.
+    Your task is to summarize the provided chat history with an emphasis on the last user question."""
     DEFAULT_TEMPLATE = """Summarize the message history. Use no more than {max_words} words.
 
-    {history}
-    """
+{history}"""
     DEFAULT_MAX_WORDS = 300

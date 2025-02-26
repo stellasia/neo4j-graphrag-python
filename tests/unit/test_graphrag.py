@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, call
 import pytest
 from neo4j_graphrag.exceptions import RagInitializationError, SearchValidationError
 from neo4j_graphrag.generation.graphrag import GraphRAG
-from neo4j_graphrag.generation.prompts import RagTemplate
+from neo4j_graphrag.generation.prompts import RagTemplate, ChatHistorySummaryTemplate
 from neo4j_graphrag.generation.types import RagResultModel
 from neo4j_graphrag.llm import LLMResponse
 from neo4j_graphrag.llm.types import LLMMessage
@@ -110,13 +110,12 @@ def test_graphrag_happy_path_with_message_history(
 
     expected_retriever_query_text = """llm generated summary"""
 
-    first_invocation_input = """
-Summarize the message history:
+    first_invocation_input = """Summarize the message history. Use no more than 300 words.
 
 user: initial question
 assistant: answer to initial question
-"""
-    first_invocation_system_instruction = "You are a summarization assistant. Summarize the given text in no more than 300 words."
+user: question"""
+    first_invocation_system_instruction = "You are a summarization assistant.\n    Your task is to summarize the provided chat history with an emphasis on the last user question."
     second_invocation = """Context:
 item content 1
 item content 2
@@ -145,7 +144,7 @@ Answer:
                 message_history,
                 system_instruction="Answer the user question using the provided context.",
             ),
-        ]
+        ], any_order=False,
     )
 
     assert isinstance(res, RagResultModel)
@@ -178,21 +177,12 @@ def test_graphrag_happy_path_with_in_memory_message_history(
     )
     res = rag.search("question", message_history)
 
-    expected_retriever_query_text = """
-Message Summary:
-llm generated summary
-
-Current Query:
-question
-"""
-
-    first_invocation_input = """
-Summarize the message history:
+    first_invocation_input = """Summarize the message history. Use no more than 300 words.
 
 user: initial question
 assistant: answer to initial question
-"""
-    first_invocation_system_instruction = "You are a summarization assistant. Summarize the given text in no more than 300 words."
+user: question"""
+    first_invocation_system_instruction = ChatHistorySummaryTemplate.DEFAULT_SYSTEM_INSTRUCTIONS
     second_invocation = """Context:
 item content 1
 item content 2
@@ -207,7 +197,7 @@ Answer:
 """
 
     retriever_mock.search.assert_called_once_with(
-        query_text=expected_retriever_query_text
+        query_text="llm generated summary"
     )
     assert llm.invoke.call_count == 2
     llm.invoke.assert_has_calls(
@@ -221,7 +211,7 @@ Answer:
                 message_history.messages,
                 system_instruction="Answer the user question using the provided context.",
             ),
-        ]
+        ], any_order=False,
     )
 
     assert isinstance(res, RagResultModel)
@@ -275,28 +265,3 @@ def test_graphrag_search_error(retriever_mock: MagicMock, llm: MagicMock) -> Non
     with pytest.raises(SearchValidationError) as excinfo:
         rag.search(10)  # type: ignore
     assert "Input should be a valid string" in str(excinfo)
-
-
-def test_chat_summary_template(retriever_mock: MagicMock, llm: MagicMock) -> None:
-    message_history = [
-        {"role": "user", "content": "initial question"},
-        {"role": "assistant", "content": "answer to initial question"},
-        {"role": "user", "content": "second question"},
-        {"role": "assistant", "content": "answer to second question"},
-    ]
-    rag = GraphRAG(
-        retriever=retriever_mock,
-        llm=llm,
-    )
-    prompt = rag._chat_summary_prompt(message_history=message_history)  # type: ignore
-    assert (
-        prompt
-        == """
-Summarize the message history:
-
-user: initial question
-assistant: answer to initial question
-user: second question
-assistant: answer to second question
-"""
-    )
