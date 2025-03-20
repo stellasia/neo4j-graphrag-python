@@ -13,7 +13,7 @@
 #  limitations under the License.
 from __future__ import annotations
 
-from typing import Any, List, Optional, Union, cast
+from typing import Any, List, Optional, Union, cast, AsyncGenerator
 
 from pydantic import ValidationError
 
@@ -176,3 +176,21 @@ class VertexAILLM(LLMInterface):
             return LLMResponse(content=response.text)
         except ResponseValidationError as e:
             raise LLMGenerationError(e)
+
+    async def astream(self, input: str, message_history: Optional[Union[List[LLMMessage], MessageHistory]] = None) -> AsyncGenerator[LLMResponse, None]:
+        if isinstance(message_history, MessageHistory):
+            message_history = message_history.messages
+        system_message = []
+        self.model = GenerativeModel(
+            model_name=self.model_name,
+            system_instruction=system_message,
+            **self.options,
+        )
+        messages = self.get_messages(input, message_history)
+        async for response in await self.model.generate_content_async(
+            messages,
+            stream=True,
+            **self.model_params
+        ):
+            yield LLMResponse(content=response.text or "")
+

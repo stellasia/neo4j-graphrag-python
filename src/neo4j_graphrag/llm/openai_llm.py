@@ -15,7 +15,8 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Union, cast, \
+    AsyncGenerator, Generator
 
 from pydantic import ValidationError
 
@@ -154,6 +155,29 @@ class BaseOpenAILLM(LLMInterface, abc.ABC):
             return LLMResponse(content=content)
         except self.openai.OpenAIError as e:
             raise LLMGenerationError(e)
+
+    def stream(self, input: str, message_history: Optional[Union[List[LLMMessage], MessageHistory]] = None) -> Generator[LLMResponse, None, None]:
+        response = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=self.get_messages(input, message_history),
+            stream=True,
+            **self.model_params,
+        )
+        for data in response:
+            # print(data)
+            yield LLMResponse(content=data.choices[0].delta.content or "")
+
+    async def astream(self, input: str, message_history: Optional[Union[List[LLMMessage], MessageHistory]] = None) -> AsyncGenerator[LLMResponse, None]:
+        response = await self.async_client.chat.completions.create(
+            model=self.model_name,
+            messages=self.get_messages(input, message_history),
+            stream=True,
+            **self.model_params,
+        )
+        async for data in response:
+            # print(data)
+            yield LLMResponse(content=data.choices[0].delta.content or "")
+
 
 
 class OpenAILLM(BaseOpenAILLM):

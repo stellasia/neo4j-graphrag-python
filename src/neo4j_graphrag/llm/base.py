@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Union, AsyncGenerator, Generator
 
 from neo4j_graphrag.message_history import MessageHistory
 from neo4j_graphrag.types import LLMMessage
@@ -84,3 +84,10 @@ class LLMInterface(ABC):
         Raises:
             LLMGenerationError: If anything goes wrong.
         """
+
+    async def stream(self, input: str, message_history: Optional[Union[List[LLMMessage], MessageHistory]] = None) -> Generator[LLMResponse, None, None]:
+        raise NotImplementedError()
+
+    async def astream(self, input: str, message_history: Optional[Union[List[LLMMessage], MessageHistory]] = None) -> AsyncGenerator[LLMResponse, None]:
+        raise NotImplementedError()
+
