@@ -1,5 +1,8 @@
 import pytest
 from typing import Any
+
+from pydantic import TypeAdapter
+
 from neo4j_graphrag.tool import (
     StringParameter,
     IntegerParameter,
@@ -8,25 +11,23 @@ from neo4j_graphrag.tool import (
     ArrayParameter,
     ObjectParameter,
     Tool,
-    ToolParameter,
+    AnyToolParameter,
     ParameterType,
 )
 
 
 def test_string_parameter() -> None:
-    param = StringParameter(description="A string", required=True, enum=["a", "b"])
+    param = StringParameter(description="A string", enum=["a", "b"])
     assert param.description == "A string"
-    assert param.required is True
     assert param.enum == ["a", "b"]
-    d = param.model_dump_tool()
+    d = param.model_dump()
     assert d["type"] == ParameterType.STRING
     assert d["enum"] == ["a", "b"]
-    assert d["required"] is True
 
 
 def test_integer_parameter() -> None:
     param = IntegerParameter(description="An int", minimum=0, maximum=10)
-    d = param.model_dump_tool()
+    d = param.model_dump()
     assert d["type"] == ParameterType.INTEGER
     assert d["minimum"] == 0
     assert d["maximum"] == 10
@@ -34,7 +35,7 @@ def test_integer_parameter() -> None:
 
 def test_number_parameter() -> None:
     param = NumberParameter(description="A number", minimum=1.5, maximum=3.5)
-    d = param.model_dump_tool()
+    d = param.model_dump()
     assert d["type"] == ParameterType.NUMBER
     assert d["minimum"] == 1.5
     assert d["maximum"] == 3.5
@@ -42,7 +43,7 @@ def test_number_parameter() -> None:
 
 def test_boolean_parameter() -> None:
     param = BooleanParameter(description="A bool")
-    d = param.model_dump_tool()
+    d = param.model_dump()
     assert d["type"] == ParameterType.BOOLEAN
     assert d["description"] == "A bool"
 
@@ -54,7 +55,7 @@ def test_array_parameter_and_validation() -> None:
         min_items=1,
         max_items=5,
     )
-    d = arr_param.model_dump_tool()
+    d = arr_param.model_dump(by_alias=True)
     assert d["type"] == ParameterType.ARRAY
     assert d["items"]["type"] == ParameterType.STRING
     assert d["minItems"] == 1
@@ -80,10 +81,10 @@ def test_object_parameter_and_validation() -> None:
             "foo": StringParameter(description="foo"),
             "bar": IntegerParameter(description="bar"),
         },
-        required_properties=["foo"],
+        required=["foo"],
         additional_properties=False,
     )
-    d = obj_param.model_dump_tool()
+    d = obj_param.model_dump(by_alias=True)
     assert d["type"] == ParameterType.OBJECT
     assert d["properties"]["foo"]["type"] == ParameterType.STRING
     assert d["required"] == ["foo"]
@@ -107,9 +108,10 @@ def test_object_parameter_and_validation() -> None:
         ).validate_properties()
 
 
-def test_from_dict() -> None:
+def test_any_tool_parameter_union() -> None:
+    adapter = TypeAdapter(AnyToolParameter)
     d = {"type": ParameterType.STRING, "description": "desc"}
-    param = ToolParameter.from_dict(d)
+    param = adapter.validate_python(d)
     assert isinstance(param, StringParameter)
     assert param.description == "desc"
 
@@ -118,7 +120,7 @@ def test_from_dict() -> None:
         "description": "obj",
         "properties": {"foo": {"type": "string", "description": "foo"}},
     }
-    obj_param = ToolParameter.from_dict(obj_dict)
+    obj_param = adapter.validate_python(obj_dict)
     assert isinstance(obj_param, ObjectParameter)
     assert isinstance(obj_param.properties["foo"], StringParameter)
 
@@ -127,50 +129,32 @@ def test_from_dict() -> None:
         "description": "arr",
         "items": {"type": "integer", "description": "int"},
     }
-    arr_param = ToolParameter.from_dict(arr_dict)
+    arr_param = adapter.validate_python(arr_dict)
     assert isinstance(arr_param, ArrayParameter)
     assert isinstance(arr_param.items, IntegerParameter)
 
     # Test unknown type
     with pytest.raises(ValueError):
-        ToolParameter.from_dict({"type": "unknown", "description": "bad"})
+        adapter.validate_python({"type": "unknown", "description": "bad"})
 
     # Test missing type
     with pytest.raises(ValueError):
-        ToolParameter.from_dict({"description": "no type"})
+        adapter.validate_python({"description": "no type"})
 
 
 def test_required_parameter() -> None:
-    # Test that required=True is included in model_dump_tool output for different parameter types
-    string_param = StringParameter(description="Required string", required=True)
-    assert string_param.model_dump_tool()["required"] is True
-
-    integer_param = IntegerParameter(description="Required integer", required=True)
-    assert integer_param.model_dump_tool()["required"] is True
-
-    number_param = NumberParameter(description="Required number", required=True)
-    assert number_param.model_dump_tool()["required"] is True
-
-    boolean_param = BooleanParameter(description="Required boolean", required=True)
-    assert boolean_param.model_dump_tool()["required"] is True
-
-    array_param = ArrayParameter(
-        description="Required array",
-        items=StringParameter(description="item"),
-        required=True,
+    object_param = ObjectParameter(
+        description="Required object",
+        properties={"prop": StringParameter(description="property")},
     )
-    assert array_param.model_dump_tool()["required"] is True
+    assert object_param.model_dump()["required"] == []
 
     object_param = ObjectParameter(
         description="Required object",
         properties={"prop": StringParameter(description="property")},
-        required=True,
+        required=["prop"],
     )
-    assert object_param.model_dump_tool()["required"] is True
-
-    # Test that required=False doesn't include the required field
-    optional_param = StringParameter(description="Optional string", required=False)
-    assert "required" not in optional_param.model_dump_tool()
+    assert object_param.model_dump()["required"] == ["prop"]
 
 
 def test_tool_class() -> None:
