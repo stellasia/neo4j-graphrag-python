@@ -21,7 +21,8 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 from pathlib import Path
 
 import neo4j
-from pydantic import BaseModel, ValidationError, model_validator, validate_call
+from pydantic import BaseModel, ValidationError, model_validator, validate_call, \
+    PrivateAttr
 from typing_extensions import Self
 
 from neo4j_graphrag.exceptions import (
@@ -36,6 +37,7 @@ from neo4j_graphrag.experimental.pipeline.types.schema import (
 )
 from neo4j_graphrag.generation import SchemaExtractionTemplate, PromptTemplate
 from neo4j_graphrag.llm import LLMInterface
+from neo4j_graphrag.schema import get_structured_schema
 
 
 class SchemaProperty(BaseModel):
@@ -105,8 +107,8 @@ class GraphSchema(DataModel):
     potential_schema: Optional[List[Tuple[str, str, str]]] = None
     # indexes: list[something] = None
 
-    _entity_index: dict[str, SchemaEntity]
-    _relation_index: dict[str, SchemaRelation]
+    _entity_index: dict[str, SchemaEntity] = PrivateAttr()
+    _relation_index: dict[str, SchemaRelation] = PrivateAttr()
 
     @model_validator(mode="after")
     def validate_relationships(self) -> Self:
@@ -142,7 +144,6 @@ class GraphSchema(DataModel):
 
     def relation_from_label(self, label: str) -> Optional[SchemaRelation]:
         return self._relation_index.get(label)
-
 
     def store_as_json(self, file_path: str) -> None:
         """
@@ -450,4 +451,60 @@ class SchemaFromGraphBuilder(BaseSchemaBuilder):
         self.driver = driver
 
     async def run(self, **kwargs: Any) -> GraphSchema:
-        pass
+        structured_schema = get_structured_schema(self.driver)
+        entity_labels = set(structured_schema["node_props"].keys())
+        entities = [
+            SchemaEntity(
+                label=key,
+                properties=[
+                    SchemaProperty(
+                        name=p["property"],
+                        type=p["type"]
+                    )
+                    for p in properties
+                ]
+            )
+            for key, properties in structured_schema["node_props"].items()
+        ]
+        rel_labels = set(structured_schema["rel_props"].keys())
+        relations = [
+            SchemaRelation(
+                label=key,
+                properties=[
+                    SchemaProperty(
+                        name=p["property"],
+                        type=p["type"]
+                    )
+                    for p in properties
+                ]
+            )
+            for key, properties in structured_schema["rel_props"].items()
+        ]
+        potential_schema = [
+            (s["start"], s["type"], s["end"])
+            for s in structured_schema["relationships"]
+        ]
+        # deal with nodes and relationships without properties
+        for source, rel, target in potential_schema:
+            if source not in entity_labels:
+                entity_labels.add(source)
+                entities.append(
+                    SchemaEntity(label=source,)
+                )
+            if target not in entity_labels:
+                entity_labels.add(target)
+                entities.append(
+                    SchemaEntity(label=target)
+                )
+            if rel not in rel_labels:
+                rel_labels.add(rel)
+                relations.append(
+                    SchemaRelation(
+                        label=rel,
+                    )
+                )
+        return GraphSchema(
+            entities=entities,
+            relations=relations,
+            potential_schema=potential_schema,
+        )
