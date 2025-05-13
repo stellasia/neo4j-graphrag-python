@@ -2322,6 +2322,17 @@ files = [
 ]
 
 [[package]]
+name = "jsonref"
+version = "1.1.0"
+description = "jsonref is a library for automatic dereferencing of JSON Reference objects for Python."
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "jsonref-1.1.0-py3-none-any.whl", hash = "sha256:590dc7773df6c21cbf948b5dac07a72a251db28b0238ceecce0a2abfa8ec30a9"},
+    {file = "jsonref-1.1.0.tar.gz", hash = "sha256:32fe8e1d85af0fdefbebce950af85590b22b60f9e95443176adbde4e1ecea552"},
+]
+
+[[package]]
 name = "langchain-core"
 version = "0.3.50"
 description = "Building applications with LLMs through composability"
@@ -3821,8 +3832,8 @@ files = [
 [package.dependencies]
 numpy = [
     {version = ">=1.23.2", markers = "python_version == \"3.11\""},
-    {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
     {version = ">=1.22.4", markers = "python_version < \"3.11\""},
+    {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
 ]
 python-dateutil = ">=2.8.2"
 pytz = ">=2020.1"
@@ -4712,8 +4723,8 @@ grpcio-tools = ">=1.41.0"
 httpx = {version = ">=0.20.0", extras = ["http2"]}
 numpy = [
     {version = ">=1.21", markers = "python_version >= \"3.10\" and python_version < \"3.12\""},
-    {version = ">=1.26", markers = "python_version == \"3.12\""},
     {version = ">=1.21,<2.1.0", markers = "python_version < \"3.10\""},
+    {version = ">=1.26", markers = "python_version == \"3.12\""},
 ]
 portalocker = ">=2.7.0,<3.0.0"
 pydantic = ">=1.10.8"
@@ -6923,4 +6934,4 @@ weaviate = ["weaviate-client"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9.0,<3.13"
-content-hash = "4f373456b1c2ff708850be549f8629cd27502fabc4d5ba3f8fdc2cd5ddc7919e"
+content-hash = "da5ca11e71da72f70c15f7fef2af2ca6d9e2f0ffb4fed4ff13c9332059a4ed15"

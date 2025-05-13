@@ -452,7 +452,9 @@ class LLMEntityRelationExtractor(EntityRelationExtractor):
                 rel.start_node_id not in valid_nodes
                 or rel.end_node_id not in valid_nodes
             ):
-                logger.debug(f"PRUNING:: {rel} as one of {rel.start_node_id} and {rel.end_node_id} is not in the graph")
+                logger.debug(
+                    f"PRUNING:: {rel} as one of {rel.start_node_id} and {rel.end_node_id} is not in the graph"
+                )
                 continue
 
             start_label = valid_nodes[rel.start_node_id]

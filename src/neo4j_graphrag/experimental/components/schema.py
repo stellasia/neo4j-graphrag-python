@@ -21,8 +21,13 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 from pathlib import Path
 
 import neo4j
-from pydantic import BaseModel, ValidationError, model_validator, validate_call, \
-    PrivateAttr
+from pydantic import (
+    BaseModel,
+    ValidationError,
+    model_validator,
+    validate_call,
+    PrivateAttr,
+)
 from typing_extensions import Self
 
 from neo4j_graphrag.exceptions import (
@@ -113,7 +118,9 @@ class GraphSchema(DataModel):
     @model_validator(mode="after")
     def validate_relationships(self) -> Self:
         self._entity_index = {e.label: e for e in self.entities}
-        self._relation_index = {r.label: r for r in self.relations} if self.relations else {}
+        self._relation_index = (
+            {r.label: r for r in self.relations} if self.relations else {}
+        )
 
         relations = self.relations or []
         potential_schema = self.potential_schema or []
@@ -320,13 +327,13 @@ class SchemaBuilder(BaseSchemaBuilder):
             SchemaConfig: A configured schema object.
         """
         try:
-            return GraphSchema.model_validate(dict(
+            return GraphSchema(
                 entities=entities,
                 relations=relations,
                 potential_schema=potential_schema,
-            ))
-        except (ValidationError, SchemaValidationError) as e:
-            raise SchemaValidationError(e)
+            )
+        except ValidationError as e:
+            raise SchemaValidationError() from e
 
     @validate_call
     async def run(
@@ -457,12 +464,9 @@ class SchemaFromGraphBuilder(BaseSchemaBuilder):
             SchemaEntity(
                 label=key,
                 properties=[
-                    SchemaProperty(
-                        name=p["property"],
-                        type=p["type"]
-                    )
+                    SchemaProperty(name=p["property"], type=p["type"])
                     for p in properties
-                ]
+                ],
             )
             for key, properties in structured_schema["node_props"].items()
         ]
@@ -471,12 +475,9 @@ class SchemaFromGraphBuilder(BaseSchemaBuilder):
             SchemaRelation(
                 label=key,
                 properties=[
-                    SchemaProperty(
-                        name=p["property"],
-                        type=p["type"]
-                    )
+                    SchemaProperty(name=p["property"], type=p["type"])
                     for p in properties
-                ]
+                ],
             )
             for key, properties in structured_schema["rel_props"].items()
         ]
@@ -489,13 +490,13 @@ class SchemaFromGraphBuilder(BaseSchemaBuilder):
             if source not in entity_labels:
                 entity_labels.add(source)
                 entities.append(
-                    SchemaEntity(label=source,)
+                    SchemaEntity(
+                        label=source,
+                    )
                 )
             if target not in entity_labels:
                 entity_labels.add(target)
-                entities.append(
-                    SchemaEntity(label=target)
-                )
+                entities.append(SchemaEntity(label=target))
             if rel not in rel_labels:
                 rel_labels.add(rel)
                 relations.append(
@@ -508,3 +509,73 @@ class SchemaFromGraphBuilder(BaseSchemaBuilder):
             relations=relations,
             potential_schema=potential_schema,
         )
+
+
+# utility stuff to map type from data importer to SchemaProperty
+TYPE_MAP = {
+    "DATETIME": "LOCAL_DATETIME",
+}
+
+
+def _get_type(t: str) -> str:
+    ut = t.upper()
+    if ut in TYPE_MAP:
+        return TYPE_MAP[ut]
+    return ut
+
+
+class SchemaFromDataImporterModelBulder(BaseSchemaBuilder):
+    async def run(self, data: dict[str, Any]) -> GraphSchema:
+        graph_model = data["dataModel"]["graphSchemaRepresentation"]["graphSchema"]
+        nodes = graph_model["nodeLabels"]
+        node_objects = graph_model["nodeObjectTypes"]
+        relationships = graph_model["relationshipTypes"]
+        relation_objects = graph_model["relationshipObjectTypes"]
+
+        node_label_index = {"#" + n["$id"]: n["token"] for n in nodes}
+        node_object_to_labels_index = {
+            "#" + n["$id"]: [node_label_index[l["$ref"]] for l in n["labels"]]
+            for n in node_objects
+        }
+        rel_type_index = {"#" + r["$id"]: r["token"] for r in relationships}
+
+        entities = [
+            SchemaEntity(
+                label=n["token"],
+                properties=[
+                    SchemaProperty(
+                        name=p["token"],
+                        type=_get_type(p["type"]["type"]),  # type: ignore
+                    )
+                    for p in n["properties"]
+                ],
+            )
+            for n in nodes
+        ]
+        relations = [
+            SchemaRelation(
+                label=r["token"],
+                properties=[
+                    SchemaProperty(
+                        name=p["token"],
+                        type=_get_type(p["type"]["type"]),  # type: ignore
+                    )
+                    for p in r["properties"]
+                ],
+            )
+            for r in relationships
+        ]
+        potential_schema = [
+            (
+                node_object_to_labels_index[r["from"]["$ref"]][0],
+                rel_type_index[r["type"]["$ref"]],
+                node_object_to_labels_index[r["to"]["$ref"]][0],
+            )
+            for r in relation_objects
+        ]
+        schema = GraphSchema(
+            entities=entities,
+            relations=relations,
+            potential_schema=potential_schema,
+        )
+        return schema
