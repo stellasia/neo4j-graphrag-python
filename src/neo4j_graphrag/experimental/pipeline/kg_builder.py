@@ -43,7 +43,7 @@ from neo4j_graphrag.experimental.pipeline.types.schema import (
 )
 from neo4j_graphrag.generation.prompts import ERExtractionTemplate
 from neo4j_graphrag.llm.base import LLMInterface
-from neo4j_graphrag.experimental.components.schema import SchemaConfig
+from neo4j_graphrag.experimental.components.schema import GraphSchema
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ class SimpleKGPipeline:
         entities: Optional[Sequence[EntityInputType]] = None,
         relations: Optional[Sequence[RelationInputType]] = None,
         potential_schema: Optional[List[tuple[str, str, str]]] = None,
-        schema: Optional[Union[SchemaConfig, dict[str, list[Any]]]] = None,
+        schema: Optional[Union[GraphSchema, dict[str, list[Any]]]] = None,
         enforce_schema: str = "NONE",
         from_pdf: bool = True,
         text_splitter: Optional[TextSplitter] = None,

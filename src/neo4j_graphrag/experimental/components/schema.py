@@ -27,6 +27,7 @@ from pydantic import (
     model_validator,
     validate_call,
     PrivateAttr,
+    ConfigDict,
 )
 from typing_extensions import Self
 
@@ -114,6 +115,10 @@ class GraphSchema(DataModel):
 
     _entity_index: dict[str, SchemaEntity] = PrivateAttr()
     _relation_index: dict[str, SchemaRelation] = PrivateAttr()
+
+    model_config = ConfigDict(
+        frozen=True,
+    )
 
     @model_validator(mode="after")
     def validate_relationships(self) -> Self:
@@ -243,6 +248,7 @@ class GraphSchema(DataModel):
                 raise ValueError(f"Invalid YAML file: {e}")
             except ValidationError as e:
                 raise SchemaValidationError(f"Schema validation failed: {e}")
+
 
 class BaseSchemaBuilder(Component):
     async def run(self, **kwargs: Any) -> GraphSchema:
@@ -534,7 +540,7 @@ class SchemaFromDataImporterModelBulder(BaseSchemaBuilder):
 
         node_label_index = {"#" + n["$id"]: n["token"] for n in nodes}
         node_object_to_labels_index = {
-            "#" + n["$id"]: [node_label_index[l["$ref"]] for l in n["labels"]]
+            "#" + n["$id"]: [node_label_index[label["$ref"]] for label in n["labels"]]
             for n in node_objects
         }
         rel_type_index = {"#" + r["$id"]: r["token"] for r in relationships}
