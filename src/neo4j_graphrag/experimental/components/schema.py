@@ -347,6 +347,7 @@ class SchemaBuilder(BaseSchemaBuilder):
         entities: List[SchemaEntity],
         relations: Optional[List[SchemaRelation]] = None,
         potential_schema: Optional[List[Tuple[str, str, str]]] = None,
+        **kwargs: Any,
     ) -> GraphSchema:
         """
         Asynchronously constructs and returns a GraphSchema object.
@@ -362,7 +363,7 @@ class SchemaBuilder(BaseSchemaBuilder):
         return self.create_schema_model(entities, relations, potential_schema)
 
 
-class SchemaFromTextExtractor(Component):
+class SchemaFromTextExtractor(BaseSchemaBuilder):
     """
     A component for constructing SchemaConfig objects from the output of an LLM after
     automatic schema extraction from text.
