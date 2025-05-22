@@ -39,7 +39,7 @@ from neo4j_graphrag.experimental.components.embedder import TextChunkEmbedder
 from neo4j_graphrag.experimental.components.types import (
     LexicalGraphConfig, SchemaEnforcementMode
 )
-from neo4j_graphrag.experimental.pipeline.component import Component
+from neo4j_graphrag.experimental.pipeline.component import Component, Serializable
 from neo4j_graphrag.experimental.pipeline.pipeline import Pipeline, PipelineResult
 from neo4j_graphrag.experimental.pipeline.exceptions import PipelineDefinitionError
 from neo4j_graphrag.experimental.pipeline.types.schema import (
@@ -48,6 +48,7 @@ from neo4j_graphrag.experimental.pipeline.types.schema import (
 from neo4j_graphrag.generation.prompts import ERExtractionTemplate
 from neo4j_graphrag.llm.base import LLMInterface
 from neo4j_graphrag.experimental.pipeline.types.definitions import ConnectionDefinition
+from neo4j_graphrag.experimental.pipeline.serializable import serialize_object, deserialize_object
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +56,9 @@ logger = logging.getLogger(__name__)
 P = TypeVar('P', bound='TemplatePipeline')
 
 
+
 @dataclass
-class ComponentSpec:
+class ComponentSpec():
     """
     Specification for a pipeline component.
     
@@ -222,7 +224,7 @@ class ComponentSpec:
         
         # Create and return the component instance
         return component_class(**params)
-
+    
 
 # Create a specialized ComponentSpec for the schema component
 class SchemaComponentSpec(ComponentSpec):
@@ -252,12 +254,45 @@ class SchemaComponentSpec(ComponentSpec):
         return SchemaFromTextExtractor
 
 
-class PipelineConfig(ABC):
+class PipelineConfig(Serializable, ABC):
     """Base class for all pipeline configurations."""
-    pass
+    
+    def _serialize(self) -> Dict[str, Any]:
+        """Serialize the config to a dictionary.
+        
+        Returns:
+            Dictionary with serialized configuration
+        """
+        # Serialize all public attributes
+        result = {}
+        for key, value in self.__dict__.items():
+            if not key.startswith('_'):
+                result[key] = serialize_object(value)
+        return result
+    
+    @classmethod
+    def _deserialize(cls, data: Dict[str, Any]) -> PipelineConfig:
+        """Deserialize a configuration from a dictionary.
+        
+        Args:
+            data: Dictionary with serialized configuration
+            
+        Returns:
+            Reconstructed configuration instance
+        """
+        # Create new instance
+        instance = cls.__new__(cls)
+        
+        # Set attributes from data, skipping the type key
+        for key, value in data.items():
+            if key != "__type__":
+                setattr(instance, key, deserialize_object(value))
+                
+        return instance
 
 
-class TemplatePipeline(ABC):
+
+class TemplatePipeline(Serializable, ABC):
     """Abstract base class for all template-based pipelines.
     
     This class defines the interface that all pipeline implementations must follow.
@@ -299,8 +334,9 @@ class TemplatePipeline(ABC):
     ```
     """
     
-    # Class variable to be defined by subclasses
+    # Class variables to be defined by subclasses
     COMPONENTS: Dict[str, ComponentSpec] = {}
+    VERSION: str = "1.0.0"  # Initial version
     
     @classmethod
     @abstractmethod
@@ -363,6 +399,46 @@ class TemplatePipeline(ABC):
         
         # Use the ComponentSpec to instantiate the component
         return component_spec.instantiate(self, component_name, user_params)
+    
+    @abstractmethod
+    def _setup_pipeline(self) -> None:
+        """Set up the pipeline with components and connections."""
+        pass
+    
+    def _serialize(self) -> Dict[str, Any]:
+        """Serialize the template pipeline to a dictionary.
+        
+        Returns:
+            Dictionary with serialized pipeline data
+        """
+        return {
+            "version": self.VERSION,
+            "config": serialize_object(self.config),
+            "component_configs": serialize_object(self.component_configs),
+            "component_replacements": serialize_object(self.component_replacements)
+        }
+    
+    @classmethod
+    def _deserialize(cls, data: Dict[str, Any]) -> TemplatePipeline:
+        """Deserialize a template pipeline from a dictionary.
+        
+        Args:
+            data: Dictionary with serialized pipeline data
+            
+        Returns:
+            Reconstructed pipeline instance
+        """
+        # Deserialize config, component configs, and component replacements
+        config = deserialize_object(data.get("config", {}))
+        component_configs = deserialize_object(data.get("component_configs", {}))
+        component_replacements = deserialize_object(data.get("component_replacements", {}))
+        
+        # Create and return the pipeline instance
+        return cls(
+            config=config,
+            component_configs=component_configs,
+            component_replacements=component_replacements
+        )
 
 
 class TemplateBuilder(Generic[P]):
@@ -497,6 +573,34 @@ class TemplateBuilder(Generic[P]):
             component_configs=self._component_configs,
             component_replacements=self._component_replacements
         ))
+        
+    def save_to_json(self, filepath: str) -> None:
+        """Save the pipeline configuration as a template to a JSON file.
+        
+        This allows saving the configuration before building the pipeline,
+        which can be useful for storing templates that can be loaded later.
+        
+        Args:
+            filepath: Path to save the JSON file
+        """
+        # Build a temporary pipeline to serialize
+        pipeline = self.build()
+        
+        # Serialize and save
+        pipeline.to_json(filepath=filepath)
+    
+    @classmethod
+    def load_from_json(cls, pipeline_class: Type[P], filepath: str) -> P:
+        """Load a pipeline from a JSON template file.
+        
+        Args:
+            pipeline_class: The pipeline class to instantiate
+            filepath: Path to the JSON template file
+            
+        Returns:
+            An instantiated pipeline
+        """
+        return pipeline_class.from_json(filepath, filepath=True)
 
 
 # SimpleKGPipeline implementation example
@@ -551,6 +655,9 @@ class SimpleKGPipeline(TemplatePipeline):
     )
     ```
     """
+    
+    # Pipeline version - increment when making breaking changes
+    VERSION = "1.0.0"
     
     # Define components with their specifications
     COMPONENTS = {
@@ -824,6 +931,9 @@ class AnotherPipeline(TemplatePipeline):
     can be used with different pipeline types.
     """
     
+    # Pipeline version - increment when making breaking changes
+    VERSION = "1.0.0"
+    
     COMPONENTS = {
         "component1": CustomComponent1Spec(  # Use a specialized ComponentSpec
             default_class=SomeComponent1Class,
@@ -917,7 +1027,7 @@ def usage_examples():
         .build()
     )
     # Since some_optional_param=True, the CustomComponent1Spec will select SomeComponent1Class
-
+    
     # Example 5: Replace a component that requires a config parameter
     # The 'some_required_param' is normally required for AnotherPipeline
     # since component2 needs it (as defined in AnotherPipeline.COMPONENTS["component2"].params).
@@ -932,4 +1042,5 @@ def usage_examples():
         .build()
     )
     # Since some_optional_param=False, the CustomComponent1Spec will select Component class
-    # This demonstrates dynamic component class selection based on configuration 
+    # This demonstrates dynamic component class selection based on configuration
+    

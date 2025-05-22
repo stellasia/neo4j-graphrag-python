@@ -15,13 +15,14 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, get_type_hints
+from typing import Any, get_type_hints, Dict
 
 from pydantic import BaseModel
 
 from neo4j_graphrag.experimental.pipeline.types.context import RunContext
 from neo4j_graphrag.experimental.pipeline.exceptions import PipelineDefinitionError
 from neo4j_graphrag.utils.validation import issubclass_safe
+from neo4j_graphrag.experimental.pipeline.serializable import Serializable
 
 
 class DataModel(BaseModel):
@@ -72,7 +73,7 @@ class ComponentMeta(type):
         return type.__new__(meta, name, bases, attrs)
 
 
-class Component(metaclass=ComponentMeta):
+class Component(Serializable, metaclass=ComponentMeta):
     """Interface that needs to be implemented
     by all components.
     """
@@ -108,3 +109,38 @@ class Component(metaclass=ComponentMeta):
         """
         # default behavior to prevent a breaking change
         return await self.run(*args, **kwargs)
+        
+    def _serialize(self) -> Dict[str, Any]:
+        """Serialize the component to a dictionary.
+        
+        Returns:
+            Dictionary with component data
+        """
+        # By default, serialize all public attributes that aren't methods
+        result = {}
+        for key, value in self.__dict__.items():
+            if not key.startswith('_') and not callable(value):
+                result[key] = value
+        return result
+    
+    @classmethod
+    def _deserialize(cls, data: Dict[str, Any]) -> Component:
+        """Deserialize a component from a dictionary.
+        
+        Args:
+            data: Dictionary with serialized component data
+            
+        Returns:
+            Component instance
+        """
+        # Remove the type key
+        component_data = {k: v for k, v in data.items() if k != "__type__"}
+        
+        # Create a new instance
+        instance = cls.__new__(cls)
+        
+        # Initialize the instance with the data
+        for key, value in component_data.items():
+            setattr(instance, key, value)
+            
+        return instance
