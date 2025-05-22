@@ -1,0 +1,123 @@
+{
+    "properties": {
+        "entities": {
+            "items": {
+                "description": "Represents an entity represented as a node in the graph.",
+                "anyOf": [
+                    {
+                        "title": "Person",
+                        "type": "object",
+                        "description": "A Person",
+                        "properties": {
+                            "_nodeLabel": {
+                                "title": "Label",
+                                "type": "string",
+                                "enum": ["Person"]
+                            },
+                            "name": {
+                                "title": "Name",
+                                "type": "string"
+                            },
+                            "title": {
+                                "default": "",
+                                "title": "Title",
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "name"
+                        ]
+                    },
+                    {
+                        "title": "House",
+                        "type": "object",
+                        "description": "Represents an aristocratic or ruling family/organization.",
+                        "properties": {
+                            "_nodeLabel": {
+                                "title": "Label",
+                                "type": "string",
+                                "enum": ["House"]
+                            },
+                            "name": {
+                                "title": "Name",
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "name"
+                        ]
+                    },
+                    {
+                        "title": "Planet",
+                        "type": "object",
+                        "description": "Represents a celestial body.",
+                        "properties": {
+                            "_nodeLabel": {
+                                "title": "Label",
+                                "type": "string",
+                                "enum": ["Planet"]
+                            },
+                            "name": {
+                                "title": "Name",
+                                "type": "string"
+                            },
+                            "climate": {
+                                "title": "Climate",
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "name"
+                        ]
+                    }
+                ]
+            },
+            "title": "Entities",
+            "description": "Nodes in the graph",
+            "type": "array"
+        },
+        "relationships": {
+            "items": {
+                "description": "Represents a relationship between two nodes in the graph.",
+                "anyOf": [
+                    {
+                        "title": "RULES",
+                        "type": "object",
+                        "description": "Indicates a house or entity exerts control over a planet or territory.",
+                        "properties": {
+                            "_relType": {
+                                "title": "Label",
+                                "type": "string",
+                                "enum": ["RULES"]
+                            },
+                            "source_node_name": {
+                                "title": "SourceNodeName",
+                                "type": "string",
+                                "description": "Name property of the source node (Person)"
+                            },
+                            "target_node_name": {
+                                "title": "TargetNodeName",
+                                "type": "string",
+                                "description": "Name property of the target node (Planet)"
+                            },
+                            "since": {
+                                "title": "Since",
+                                "type": "integer",
+                                "description": "The year from which the rule has been established."
+                            }
+                        },
+                        "required": [
+                            "source_node_name", "target_node_name"
+                        ]
+                    }
+                ]
+            },
+            "title": "Relationships",
+            "description": "Relationships in the graph",
+            "type": "array"
+        }
+    },
+    "required": [],
+    "title": "EntityGraphSchema",
+    "type": "object"
+}
