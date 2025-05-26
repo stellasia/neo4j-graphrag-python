@@ -12,6 +12,8 @@ from vertexai.generative_models import (
     Part,
 )
 
+from neo4j_graphrag.llm import VertexAILLM
+
 logging.basicConfig()
 logging.getLogger("neo4j_graphrag").setLevel(logging.INFO)
 logging.getLogger("examples").setLevel(logging.INFO)
@@ -145,15 +147,19 @@ def get_vertexai_response(prompt, schema_model_or_file, model_name="gemini-2.5-f
         response_mime_type="application/json",
         response_schema=response_schema,
     )
-    model = GenerativeModel(
+
+    llm = VertexAILLM(
         model_name=model_name,
         generation_config=generation_config,
-        # system_instruction=system_message,
     )
-    result = model.generate_content([
-        Content(role="user", parts=[Part.from_text(prompt)])
-    ])
-    return result.text
+
+    # model = GenerativeModel(
+    #     model_name=model_name,
+    #     generation_config=generation_config,
+    #     # system_instruction=system_message,
+    # )
+    result = llm.invoke(prompt)
+    return result.content
 
 
 TEXT = """The son of Duke Leto Atreides and the Lady Jessica, Paul is the heir of House Atreides,
