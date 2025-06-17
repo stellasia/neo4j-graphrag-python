@@ -21,6 +21,7 @@ import warnings
 from functools import partial
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
+from neo4j_graphrag.experimental.pipeline.component import DataModel
 from neo4j_graphrag.experimental.pipeline.types.context import RunContext
 from neo4j_graphrag.experimental.pipeline.exceptions import (
     PipelineDefinitionError,
@@ -32,6 +33,7 @@ from neo4j_graphrag.experimental.pipeline.types.orchestration import (
     RunResult,
     RunStatus,
 )
+from neo4j_graphrag.experimental.pipeline.run_graph import RunGraph
 
 if TYPE_CHECKING:
     from neo4j_graphrag.experimental.pipeline.pipeline import Pipeline, TaskPipelineNode
@@ -55,7 +57,9 @@ class Orchestrator:
     def __init__(self, pipeline: Pipeline):
         self.pipeline = pipeline
         self.event_notifier = EventNotifier(pipeline.callbacks)
-        self.run_id = str(uuid.uuid4())
+        # Create RunGraph as intermediate layer between orchestrator and store
+        self.run_graph = RunGraph(store=pipeline.store)
+        self.run_id = self.run_graph.run_id
 
     async def run_task(self, task: TaskPipelineNode, data: dict[str, Any]) -> None:
         """Get inputs and run a specific task. Once the task is done,
@@ -125,13 +129,24 @@ class Orchestrator:
         # first save this component results
         res_to_save = None
         if result.result:
-            res_to_save = result.result.model_dump()
+            res_to_save = result.result
         await self.add_result_for_component(
             task.name, res_to_save, is_final=task.is_leaf()
         )
         # then get the next tasks to be executed
         # and run them in //
         await asyncio.gather(*[self.run_task(n, data) async for n in self.next(task)])
+
+    async def add_result_to_final_store(self, component_name: str, result: Any) -> None:
+        """Add result to the final results store for pipeline output."""
+        # The pipeline only returns the results of the leaf nodes
+        # TODO: make this configurable in the future.
+        result_data = result.model_dump() if result else None
+        existing_results = await self.pipeline.final_results.get(self.run_id) or {}
+        existing_results[component_name] = result_data
+        await self.pipeline.final_results.add(
+            self.run_id, existing_results, overwrite=True
+        )
 
     async def check_dependencies_complete(self, task: TaskPipelineNode) -> None:
         """Check that all parent tasks are complete.
@@ -208,7 +223,7 @@ class Orchestrator:
     ) -> dict[str, Any]:
         """Find the component inputs from:
         - input_config: the mapping between components results and inputs
-            (results are stored in the pipeline result store)
+            (results are retrieved via RunGraph)
         - input_data: the user input data
 
         Args:
@@ -221,45 +236,45 @@ class Orchestrator:
             for parameter, mapping in param_mapping.items():
                 component = mapping["component"]
                 output_param = mapping.get("param")
+                # Use the existing method (which delegates to RunGraph) for compatibility with tests
                 component_result = await self.get_results_for_component(component)
-                if output_param is not None:
-                    value = component_result.get(output_param)
-                else:
-                    value = component_result
-                if parameter in component_inputs:
-                    m = f"{component}.{parameter}" if parameter else component
-                    warnings.warn(
-                        f"In component '{component_name}', parameter '{parameter}' from user input will be ignored and replaced by '{m}'"
-                    )
-                component_inputs[parameter] = value
+                if component_result is not None:
+                    if output_param is not None:
+                        value = component_result.get(output_param)
+                    else:
+                        value = component_result
+                    
+                    if parameter in component_inputs:
+                        m = f"{component}.{parameter}" if parameter else component
+                        warnings.warn(
+                            f"In component '{component_name}', parameter '{parameter}' from user input will be ignored and replaced by '{m}'"
+                        )
+                    component_inputs[parameter] = value
         return component_inputs
 
     async def add_result_for_component(
-        self, name: str, result: dict[str, Any] | None, is_final: bool = False
+        self, name: str, result: DataModel | None, is_final: bool = False
     ) -> None:
-        """This is where we save the results in the result store and, optionally,
-        in the final result store.
+        """This method is kept for backward compatibility but now delegates to RunGraph.
         """
-        await self.pipeline.store.add_result_for_component(self.run_id, name, result)
+        await self.run_graph.add_result_for_branch(
+            self.run_graph.run_id, name, result
+        )
         if is_final:
-            # The pipeline only returns the results
-            # of the leaf nodes
-            # TODO: make this configurable in the future.
-            existing_results = await self.pipeline.final_results.get(self.run_id) or {}
-            existing_results[name] = result
-            await self.pipeline.final_results.add(
-                self.run_id, existing_results, overwrite=True
-            )
+            await self.add_result_to_final_store(name, result)
 
     async def get_results_for_component(self, name: str) -> Any:
-        return await self.pipeline.store.get_result_for_component(self.run_id, name)
+        """Get results for a component using RunGraph."""
+        return await self.run_graph.get_result_for_component(
+            self.run_graph.run_id, name
+        )
 
     async def get_status_for_component(self, name: str) -> RunStatus:
         status = await self.pipeline.store.get_status_for_component(self.run_id, name)
         if status is None:
             return RunStatus.UNKNOWN
         return RunStatus(status)
-
+    
     async def run(self, data: dict[str, Any]) -> None:
         """Run the pipline, starting from the root nodes
         (node without any parent). Then the callback on_task_complete
@@ -271,3 +286,4 @@ class Orchestrator:
         await self.event_notifier.notify_pipeline_finished(
             self.run_id, await self.pipeline.get_final_results(self.run_id)
         )
+
