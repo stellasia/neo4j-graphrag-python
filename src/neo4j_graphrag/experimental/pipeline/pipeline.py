@@ -79,34 +79,38 @@ class TaskPipelineNode(PipelineNode):
 
     async def execute(
         self, context: RunContext, inputs: dict[str, Any]
-    ) -> RunResult | None:
-        """Execute the task
+    ) -> AsyncGenerator[RunResult, None]:
+        """Execute the task and yield results
 
-        Returns:
-            RunResult | None: RunResult with status and result dict
-            if the task run successfully, None if the status update
-            was unsuccessful.
+        Yields:
+            RunResult: RunResult with status and result dict for each yielded component result
         """
-        component_result = await self.component.run_with_context(
+        async for component_result in self.component.run_with_context(
             context_=context, **inputs
-        )
-        run_result = RunResult(
-            result=component_result,
-        )
-        return run_result
+        ):
+            run_result = RunResult(
+                result=component_result,
+            )
+            yield run_result
 
     async def run(
         self, context: RunContext, inputs: dict[str, Any]
-    ) -> RunResult | None:
-        """Main method to execute the task."""
+    ) -> AsyncGenerator[RunResult, None]:
+        """Main method to execute the task and yield results."""
         logger.debug(f"TASK START {self.name=} input={prettify(inputs)}")
         start_time = default_timer()
-        res = await self.execute(context, inputs)
+        result_count = 0
+        async for res in self.execute(context, inputs):
+            result_count += 1
+            end_time = default_timer()
+            logger.debug(
+                f"TASK YIELDED {self.name} result #{result_count} in {end_time - start_time} res={prettify(res)}"
+            )
+            yield res
         end_time = default_timer()
         logger.debug(
-            f"TASK FINISHED {self.name} in {end_time - start_time} res={prettify(res)}"
+            f"TASK FINISHED {self.name} yielded {result_count} results in {end_time - start_time}"
         )
-        return res
 
 
 class PipelineResult(BaseModel):

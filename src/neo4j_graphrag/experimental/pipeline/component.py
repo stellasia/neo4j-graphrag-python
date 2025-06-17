@@ -15,7 +15,8 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, get_type_hints
+from typing import Any, AsyncGenerator, get_type_hints
+from collections.abc import AsyncGenerator as AbcAsyncGenerator
 
 from pydantic import BaseModel
 
@@ -34,6 +35,10 @@ class ComponentMeta(type):
     def __new__(
         meta, name: str, bases: tuple[type, ...], attrs: dict[str, Any]
     ) -> type:
+        # Skip validation for the base Component class itself
+        if name == "Component":
+            return type.__new__(meta, name, bases, attrs)
+            
         # extract required inputs and outputs from the run method signature
         run_method = attrs.get("run")
         run_context_method = attrs.get("run_with_context")
@@ -52,16 +57,34 @@ class ComponentMeta(type):
             if param.name not in ("self", "kwargs", "context_")
         }
         # extract returned fields from the run method return type hint
-        return_model = get_type_hints(run).get("return")
-        if return_model is None:
+        return_type = get_type_hints(run).get("return")
+        if return_type is None:
             raise PipelineDefinitionError(
                 f"The run method return type must be annotated in {name}"
             )
-        # the type hint must be a subclass of DataModel
+        
+        # Must be AsyncGenerator[DataModel, None]
+        if not (hasattr(return_type, '__origin__') and 
+                (return_type.__origin__ is AsyncGenerator or return_type.__origin__ is AbcAsyncGenerator)):
+            raise PipelineDefinitionError(
+                f"The run method must return AsyncGenerator[DataModel, None] in {name}"
+            )
+        
+        # Extract the yielded type from AsyncGenerator[DataModel, None]
+        args = getattr(return_type, '__args__', ())
+        if len(args) < 1:
+            raise PipelineDefinitionError(
+                f"AsyncGenerator return type must specify yielded type: AsyncGenerator[DataModel, None] in {name}"
+            )
+        
+        return_model = args[0]  # First arg is the yielded type
+        
+        # the yielded type must be a subclass of DataModel
         if not issubclass_safe(return_model, DataModel):
             raise PipelineDefinitionError(
-                f"The run method must return a subclass of DataModel in {name}"
+                f"The run method must yield a subclass of DataModel in {name}"
             )
+        
         attrs["component_outputs"] = {
             f: {
                 "has_default": field.is_required(),
@@ -75,6 +98,9 @@ class ComponentMeta(type):
 class Component(metaclass=ComponentMeta):
     """Interface that needs to be implemented
     by all components.
+    
+    Components must yield results through AsyncGenerator.
+    Each yielded result will create a new branch in the pipeline execution.
     """
 
     # these variables are filled by the metaclass
@@ -83,28 +109,42 @@ class Component(metaclass=ComponentMeta):
     component_inputs: dict[str, dict[str, str | bool]]
     component_outputs: dict[str, dict[str, str | bool | type]]
 
-    async def run(self, *args: Any, **kwargs: Any) -> DataModel:
-        """Run the component and return its result.
+    async def run(self, *args: Any, **kwargs: Any) -> AsyncGenerator[DataModel, None]:
+        """Run the component and yield its results.
+        
+        Components must yield one or more results, with each result creating a new branch
+        in the pipeline execution.
 
         Note: if `run_with_context` is implemented, this method will not be used.
+        
+        Yields:
+            DataModel: Each yielded result creates a new execution branch
         """
         raise NotImplementedError(
             "You must implement the `run` or `run_with_context` method. "
         )
+        # This is unreachable but needed for type checking
+        yield  # type: ignore
 
     async def run_with_context(
         self, context_: RunContext, *args: Any, **kwargs: Any
-    ) -> DataModel:
+    ) -> AsyncGenerator[DataModel, None]:
         """This method is called by the pipeline orchestrator.
         The `context_` parameter contains information about
         the pipeline run: the `run_id` and a `notify` function
         that can be used to send events from the component to
         the pipeline callback.
 
-        This feature will be moved to the `run` method in a future
-        release.
+        Components must yield one or more results, with each result creating a new branch
+        in the pipeline execution.
 
         It defaults to calling the `run` method to prevent any breaking change.
+        
+        Yields:
+            DataModel: Each yielded result creates a new execution branch
         """
         # default behavior to prevent a breaking change
-        return await self.run(*args, **kwargs)
+        async for result in self.run(*args, **kwargs):
+            yield result
+
+

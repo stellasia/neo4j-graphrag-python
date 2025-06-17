@@ -40,6 +40,8 @@ from .components import (
     ComponentPassThrough,
     StringResultModel,
     SlowComponentMultiply,
+    ComponentMultipleResults,
+    ComponentBranchTracker,
 )
 
 
@@ -57,16 +59,21 @@ async def test_simple_pipeline_two_components() -> None:
         "b",
     )
     pipe.connect("a", "b", {})
+    
+    # Helper to create async generator for mocking
+    async def mock_async_generator(result):
+        yield result
+    
     with mock.patch(
         "tests.unit.experimental.pipeline.test_pipeline.ComponentNoParam.run"
     ) as mock_run:
         mock_run.side_effect = [
-            StringResultModel(result="1"),
-            StringResultModel(result="2"),
+            mock_async_generator(StringResultModel(result="1")),
+            mock_async_generator(StringResultModel(result="2")),
         ]
         res = await pipe.run({})
-        mock_run.assert_awaited_with(**{})
-        mock_run.assert_awaited_with(**{})
+        # Verify the run method was called twice (once for each component)
+        assert mock_run.call_count == 2
     assert "b" in res.result
     assert res.result["b"] == {"result": "2"}
 
@@ -80,15 +87,20 @@ async def test_pipeline_parameter_propagation() -> None:
     pipe.add_component(component_b, "b")
     # first component output product goes to second component input number1
     pipe.connect("a", "b", {"value": "a.result"})
+    
+    # Helper to create async generator for mocking
+    async def mock_async_generator(result):
+        yield result
+    
     with mock.patch(
         "tests.unit.experimental.pipeline.test_pipeline.ComponentPassThrough.run"
     ) as mock_run:
         mock_run.side_effect = [
-            StringResultModel(result="1"),
-            StringResultModel(result="2"),
+            mock_async_generator(StringResultModel(result="1")),
+            mock_async_generator(StringResultModel(result="2")),
         ]
         res = await pipe.run({"a": {"value": "text"}})
-        mock_run.assert_has_awaits([call(**{"value": "text"}), call(**{"value": "1"})])
+        mock_run.assert_has_calls([call(**{"value": "text"}), call(**{"value": "1"})])
     assert res.result == {"b": {"result": "2"}}
 
 
@@ -252,11 +264,29 @@ def test_pipeline_parameter_validation_full_missing_inputs() -> None:
 async def test_pipeline_branches() -> None:
     pipe = Pipeline()
     component_a = AsyncMock(spec=Component)
-    component_a.run_with_context = AsyncMock(return_value={})
+    component_a.component_inputs = {}
+    component_a.component_outputs = {}
+    
+    # Mock the async generator behavior using side_effect
+    async def mock_async_gen_a(*args, **kwargs):
+        yield {}
+    component_a.run_with_context.side_effect = lambda *args, **kwargs: mock_async_gen_a(*args, **kwargs)
+    
     component_b = AsyncMock(spec=Component)
-    component_b.run_with_context = AsyncMock(return_value={})
+    component_b.component_inputs = {}
+    component_b.component_outputs = {}
+    
+    async def mock_async_gen_b(*args, **kwargs):
+        yield {}
+    component_b.run_with_context.side_effect = lambda *args, **kwargs: mock_async_gen_b(*args, **kwargs)
+    
     component_c = AsyncMock(spec=Component)
-    component_c.run_with_context = AsyncMock(return_value={})
+    component_c.component_inputs = {}
+    component_c.component_outputs = {}
+    
+    async def mock_async_gen_c(*args, **kwargs):
+        yield {}
+    component_c.run_with_context.side_effect = lambda *args, **kwargs: mock_async_gen_c(*args, **kwargs)
 
     pipe.add_component(component_a, "a")
     pipe.add_component(component_b, "b")
@@ -273,11 +303,29 @@ async def test_pipeline_branches() -> None:
 async def test_pipeline_aggregation() -> None:
     pipe = Pipeline()
     component_a = AsyncMock(spec=Component)
-    component_a.run_with_context = AsyncMock(return_value={})
+    component_a.component_inputs = {}
+    component_a.component_outputs = {}
+    
+    # Mock the async generator behavior using side_effect
+    async def mock_async_gen_a(*args, **kwargs):
+        yield {}
+    component_a.run_with_context.side_effect = lambda *args, **kwargs: mock_async_gen_a(*args, **kwargs)
+    
     component_b = AsyncMock(spec=Component)
-    component_b.run_with_context = AsyncMock(return_value={})
+    component_b.component_inputs = {}
+    component_b.component_outputs = {}
+    
+    async def mock_async_gen_b(*args, **kwargs):
+        yield {}
+    component_b.run_with_context.side_effect = lambda *args, **kwargs: mock_async_gen_b(*args, **kwargs)
+    
     component_c = AsyncMock(spec=Component)
-    component_c.run_with_context = AsyncMock(return_value={})
+    component_c.component_inputs = {}
+    component_c.component_outputs = {}
+    
+    async def mock_async_gen_c(*args, **kwargs):
+        yield {}
+    component_c.run_with_context.side_effect = lambda *args, **kwargs: mock_async_gen_c(*args, **kwargs)
 
     pipe.add_component(
         component_a,
@@ -590,3 +638,127 @@ async def test_pipeline_streaming_error_in_user_callback() -> None:
         events.append(e)
     assert len(events) == 2
     assert len(pipe.callbacks) == 1
+
+
+@pytest.mark.asyncio
+async def test_pipeline_multiple_results_branching() -> None:
+    """Test that a component yielding multiple results creates proper branches
+    and downstream components process each result independently."""
+    pipe = Pipeline()
+    
+    # Component A yields 3 results
+    component_a = ComponentMultipleResults()
+    # Component B processes each result from A independently
+    component_b = ComponentBranchTracker()
+    
+    pipe.add_component(component_a, "a")
+    pipe.add_component(component_b, "b")
+    
+    # Connect A to B: B's input_value comes from A's result
+    pipe.connect("a", "b", {"input_value": "a.result"})
+    
+    # Run the pipeline
+    pipeline_result = await pipe.run({"a": {"input_value": "test"}})
+    
+    # The final results should contain the result from one of the branches
+    # Component B is a leaf node, so its results are in the final output
+    final_results = pipeline_result.result
+    assert "b" in final_results
+    b_result = final_results["b"]
+    
+    # Since B is the leaf component and A created 3 branches,
+    # we should get the result from one of the branches
+    assert "result" in b_result
+    result = b_result["result"]
+    
+    # The result should be one of the processed branch results
+    expected_results = [
+        "processed_test_branch_1",
+        "processed_test_branch_2", 
+        "processed_test_branch_3"
+    ]
+    assert result in expected_results
+
+
+@pytest.mark.asyncio  
+async def test_pipeline_branch_isolation() -> None:
+    """Test that data doesn't leak between branches by using a custom store
+    to inspect all stored results."""
+    from neo4j_graphrag.experimental.pipeline.stores import InMemoryStore
+    
+    # Use a custom store so we can inspect all results
+    custom_store = InMemoryStore()
+    pipe = Pipeline(store=custom_store)
+    
+    component_a = ComponentMultipleResults()
+    component_b = ComponentBranchTracker()
+    
+    pipe.add_component(component_a, "a")
+    pipe.add_component(component_b, "b")
+    pipe.connect("a", "b", {"input_value": "a.result"})
+    
+    # Run pipeline
+    pipeline_result = await pipe.run({"a": {"input_value": "isolation_test"}})
+    run_id = pipeline_result.run_id
+    
+    # Inspect the store to see all stored results
+    # The store keys follow the pattern: {run_id}:{component_name}:{branch_id}
+    all_keys = list(custom_store._data.keys())
+    
+    # Filter keys for our run and components
+    a_result_keys = [k for k in all_keys if f"{run_id}:a:" in k and not k.endswith(":status")]
+    b_result_keys = [k for k in all_keys if f"{run_id}:b:" in k and not k.endswith(":status")]
+    
+    # Should have 3 results for component A (one per branch)
+    assert len(a_result_keys) == 3, f"Expected 3 A results, got {len(a_result_keys)}: {a_result_keys}"
+    
+    # Should have 3 results for component B (one per branch) 
+    assert len(b_result_keys) == 3, f"Expected 3 B results, got {len(b_result_keys)}: {b_result_keys}"
+    
+    # Collect all A results
+    all_a_results = []
+    for key in a_result_keys:
+        result = await custom_store.get(key)
+        all_a_results.append(result["result"])
+    
+    # Should have 3 distinct results from component A
+    expected_a_results = {
+        "isolation_test_branch_1",
+        "isolation_test_branch_2", 
+        "isolation_test_branch_3"
+    }
+    assert set(all_a_results) == expected_a_results
+    
+    # Collect all B results
+    all_b_results = []
+    for key in b_result_keys:
+        result = await custom_store.get(key)
+        all_b_results.append(result["result"])
+    
+    # Should have 3 distinct processed results from component B
+    expected_b_results = {
+        "processed_isolation_test_branch_1",
+        "processed_isolation_test_branch_2",
+        "processed_isolation_test_branch_3"
+    }
+    assert set(all_b_results) == expected_b_results
+    
+    # Verify branch isolation: each branch should have corresponding A and B results
+    # Extract branch IDs from the keys
+    a_branch_ids = {k.split(":")[-1] for k in a_result_keys}
+    b_branch_ids = {k.split(":")[-1] for k in b_result_keys}
+    
+    # Should have the same branch IDs for both components
+    assert a_branch_ids == b_branch_ids, "Branch IDs should match between components"
+    
+    # Verify each branch has properly isolated data
+    for branch_id in a_branch_ids:
+        a_key = f"{run_id}:a:{branch_id}"
+        b_key = f"{run_id}:b:{branch_id}"
+        
+        a_result = await custom_store.get(a_key)
+        b_result = await custom_store.get(b_key)
+        
+        # B's result should be the processed version of A's result
+        expected_b_result = f"processed_{a_result['result']}"
+        assert b_result["result"] == expected_b_result, f"Branch {branch_id}: B's result doesn't match A's result"

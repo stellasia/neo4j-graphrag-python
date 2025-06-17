@@ -39,7 +39,12 @@ def test_component_outputs() -> None:
 @pytest.mark.asyncio
 async def test_component_run() -> None:
     c = ComponentMultiply()
-    result = await c.run(number1=1, number2=2)
+    results = []
+    async for result in c.run(number1=1, number2=2):
+        results.append(result)
+    
+    assert len(results) == 1
+    result = results[0]
     assert isinstance(result, IntResultModel)
     assert isinstance(
         result.result,
@@ -51,28 +56,36 @@ async def test_component_run() -> None:
 @pytest.mark.asyncio
 async def test_component_run_with_context_default_implementation() -> None:
     c = ComponentMultiply()
-    result = await c.run_with_context(
+    results = []
+    async for result in c.run_with_context(
         # context can not be null in the function signature,
         # but it's ignored in this case
         None,  # type: ignore
         number1=1,
         number2=2,
-    )
+    ):
+        results.append(result)
+    
+    assert len(results) == 1
     # the type checker doesn't know about the type
     # because the method is not re-declared
-    assert result.result == 2  # type: ignore
+    assert results[0].result == 2  # type: ignore
 
 
 @pytest.mark.asyncio
 async def test_component_run_with_context() -> None:
     c = ComponentMultiplyWithContext()
     notifier_mock = AsyncMock()
-    result = await c.run_with_context(
+    results = []
+    async for result in c.run_with_context(
         RunContext(run_id="run_id", task_name="task_name", notifier=notifier_mock),
         number1=1,
         number2=2,
-    )
-    assert result.result == 2
+    ):
+        results.append(result)
+    
+    assert len(results) == 1
+    assert results[0].result == 2
     notifier_mock.assert_awaited_once()
 
 

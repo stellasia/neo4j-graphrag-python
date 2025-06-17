@@ -61,21 +61,25 @@ class Orchestrator:
         self.run_graph = RunGraph(store=pipeline.store)
         self.run_id = self.run_graph.run_id
 
-    async def run_task(self, task: TaskPipelineNode, data: dict[str, Any]) -> None:
+    async def run_task(self, task: TaskPipelineNode, data: dict[str, Any], branch_id: str | None = None) -> None:
         """Get inputs and run a specific task. Once the task is done,
-        calls the on_task_complete method.
+        calls the on_task_complete method for each result.
 
         Args:
             task (TaskPipelineNode): The task to be run
             data (dict[str, Any]): The pipeline input data
+            branch_id (str | None): The branch ID to execute this task in. If None, uses root branch.
 
         Returns:
             None
         """
+        # Use provided branch_id or default to root branch
+        current_branch_id = branch_id or self.run_graph.run_id
+        
         param_mapping = self.get_input_config_for_task(task)
-        inputs = await self.get_component_inputs(task.name, param_mapping, data)
+        inputs = await self.get_component_inputs(task.name, param_mapping, data, current_branch_id)
         try:
-            await self.set_task_status(task.name, RunStatus.RUNNING)
+            await self.set_task_status(task.name, RunStatus.RUNNING, current_branch_id)
         except PipelineStatusUpdateError:
             logger.debug(
                 f"ORCHESTRATOR: TASK ABORTED: {task.name} is already running or done, aborting"
@@ -90,18 +94,46 @@ class Orchestrator:
             task_name=task.name,
         )
         context = RunContext(run_id=self.run_id, task_name=task.name, notifier=notifier)
-        res = await task.run(context, inputs)
-        await self.set_task_status(task.name, RunStatus.DONE)
-        await self.event_notifier.notify_task_finished(self.run_id, task.name, res)
-        if res:
-            await self.on_task_complete(data=data, task=task, result=res)
+        
+        # Components now return AsyncGenerator, so we iterate over results
+        # Each result creates a new branch in the pipeline execution
+        result_count = 0
+        created_branches = []
+        
+        async for run_result in task.run(context, inputs):
+            result_count += 1
+            
+            if result_count == 1:
+                # First result: store in current branch
+                result_branch_id = current_branch_id
+                # Mark task as DONE after processing the first result
+                # This allows downstream components to start
+                await self.set_task_status(task.name, RunStatus.DONE, current_branch_id)
+            else:
+                # Subsequent results: create new branch
+                result_branch_id = self.run_graph.create_branch(parent_branch_id=current_branch_id)
+                created_branches.append(result_branch_id)
+                # Also mark task as RUNNING then DONE in the new branch
+                await self.set_task_status(task.name, RunStatus.RUNNING, result_branch_id)
+                await self.set_task_status(task.name, RunStatus.DONE, result_branch_id)
+            
+            await self.event_notifier.notify_task_finished(self.run_id, task.name, run_result)
+            # Handle each result in its own branch - this triggers downstream components
+            await self.on_task_complete(data=data, task=task, result=run_result, branch_id=result_branch_id)
+        
+        if result_count == 0:
+            logger.warning(f"Component {task.name} yielded no results")
+            # Still mark as done even if no results were yielded
+            await self.set_task_status(task.name, RunStatus.DONE, current_branch_id)
+            await self.event_notifier.notify_task_finished(self.run_id, task.name, None)
 
-    async def set_task_status(self, task_name: str, status: RunStatus) -> None:
-        """Set a new status
+    async def set_task_status(self, task_name: str, status: RunStatus, branch_id: str) -> None:
+        """Set a new status for a task in a specific branch
 
         Args:
             task_name (str): Name of the component
             status (RunStatus): New status
+            branch_id (str): The branch ID for this status
 
         Raises:
             PipelineStatusUpdateError if the new status is not
@@ -109,19 +141,19 @@ class Orchestrator:
         """
         # prevent the method from being called by two concurrent async calls
         async with asyncio.Lock():
-            current_status = await self.get_status_for_component(task_name)
+            current_status = await self.get_status_for_component(task_name, branch_id)
             if status == current_status:
-                raise PipelineStatusUpdateError(f"Status is already {status}")
+                raise PipelineStatusUpdateError(f"Status is already {status} for {task_name} in branch {branch_id}")
             if status not in current_status.possible_next_status():
                 raise PipelineStatusUpdateError(
-                    f"Can't go from {current_status} to {status}"
+                    f"Can't go from {current_status} to {status} for {task_name} in branch {branch_id}"
                 )
-            return await self.pipeline.store.add_status_for_component(
-                self.run_id, task_name, status.value
-            )
+            # Store status with branch-specific key
+            status_key = f"{self.run_id}:{task_name}:{branch_id}:status"
+            return await self.pipeline.store.add(status_key, status.value, overwrite=True)
 
     async def on_task_complete(
-        self, data: dict[str, Any], task: TaskPipelineNode, result: RunResult
+        self, data: dict[str, Any], task: TaskPipelineNode, result: RunResult, branch_id: str
     ) -> None:
         """When a given task is complete, it will call this method
         to find the next tasks to run.
@@ -130,12 +162,17 @@ class Orchestrator:
         res_to_save = None
         if result.result:
             res_to_save = result.result
+        
         await self.add_result_for_component(
-            task.name, res_to_save, is_final=task.is_leaf()
+            task.name, res_to_save, branch_id, is_final=task.is_leaf()
         )
         # then get the next tasks to be executed
-        # and run them in //
-        await asyncio.gather(*[self.run_task(n, data) async for n in self.next(task)])
+        # and run them in the specific branch
+        next_tasks = []
+        async for n in self.next(task, branch_id):
+            next_tasks.append(n)
+        
+        await asyncio.gather(*[self.run_task(n, data, branch_id) for n in next_tasks])
 
     async def add_result_to_final_store(self, component_name: str, result: Any) -> None:
         """Add result to the final results store for pipeline output."""
@@ -148,27 +185,27 @@ class Orchestrator:
             self.run_id, existing_results, overwrite=True
         )
 
-    async def check_dependencies_complete(self, task: TaskPipelineNode) -> None:
-        """Check that all parent tasks are complete.
+    async def check_dependencies_complete(self, task: TaskPipelineNode, branch_id: str) -> None:
+        """Check that all parent tasks are complete in the given branch.
 
         Raises:
             MissingDependencyError if a parent task's status is not DONE.
         """
         dependencies = self.pipeline.previous_edges(task.name)
         for d in dependencies:
-            d_status = await self.get_status_for_component(d.start)
+            d_status = await self.get_status_for_component(d.start, branch_id)
             if d_status != RunStatus.DONE:
                 logger.debug(
                     f"ORCHESTRATOR {self.run_id}: TASK DELAYED: Missing dependency {d.start} for {task.name} "
-                    f"(status: {d_status}). "
+                    f"(status: {d_status}) in branch {branch_id}. "
                     "Will try again when dependency is complete."
                 )
                 raise PipelineMissingDependencyError()
 
     async def next(
-        self, task: TaskPipelineNode
+        self, task: TaskPipelineNode, branch_id: str
     ) -> AsyncGenerator[TaskPipelineNode, None]:
-        """Find the next tasks to be executed after `task` is complete.
+        """Find the next tasks to be executed after `task` is complete in the given branch.
 
         1. Find the task children
         2. Check each child's status:
@@ -177,20 +214,22 @@ class Orchestrator:
                 add this task to the list of next tasks to be executed
         """
         possible_next = self.pipeline.next_edges(task.name)
+        
         for next_edge in possible_next:
             next_node = self.pipeline.get_node_by_name(next_edge.end)
-            # check status
-            next_node_status = await self.get_status_for_component(next_node.name)
+            # check status in the specific branch
+            next_node_status = await self.get_status_for_component(next_node.name, branch_id)
+            
             if next_node_status in [RunStatus.RUNNING, RunStatus.DONE]:
                 # already running
                 continue
             # check deps
             try:
-                await self.check_dependencies_complete(next_node)
+                await self.check_dependencies_complete(next_node, branch_id)
             except PipelineMissingDependencyError:
                 continue
             logger.debug(
-                f"ORCHESTRATOR {self.run_id}: enqueuing next task: {next_node.name}"
+                f"ORCHESTRATOR {self.run_id}: enqueuing next task: {next_node.name} in branch {branch_id}"
             )
             yield next_node
         return
@@ -220,24 +259,26 @@ class Orchestrator:
         component_name: str,
         param_mapping: dict[str, dict[str, str]],
         input_data: dict[str, Any],
+        branch_id: str,
     ) -> dict[str, Any]:
         """Find the component inputs from:
         - input_config: the mapping between components results and inputs
-            (results are retrieved via RunGraph)
+            (results are retrieved via RunGraph for the specific branch)
         - input_data: the user input data
 
         Args:
             component_name (str): the component/task name
             param_mapping (dict[str, dict[str, str]]): the input config
             input_data (dict[str, Any]): the pipeline input data (user input)
+            branch_id (str): the branch ID to get results from
         """
         component_inputs: dict[str, Any] = input_data.get(component_name, {})
         if param_mapping:
             for parameter, mapping in param_mapping.items():
                 component = mapping["component"]
                 output_param = mapping.get("param")
-                # Use the existing method (which delegates to RunGraph) for compatibility with tests
-                component_result = await self.get_results_for_component(component)
+                # Get results from the specific branch
+                component_result = await self.get_results_for_component(component, branch_id)
                 if component_result is not None:
                     if output_param is not None:
                         value = component_result.get(output_param)
@@ -253,24 +294,26 @@ class Orchestrator:
         return component_inputs
 
     async def add_result_for_component(
-        self, name: str, result: DataModel | None, is_final: bool = False
+        self, name: str, result: DataModel | None, branch_id: str, is_final: bool = False
     ) -> None:
-        """This method is kept for backward compatibility but now delegates to RunGraph.
-        """
+        """Add result for a component in a specific branch."""
         await self.run_graph.add_result_for_branch(
-            self.run_graph.run_id, name, result
+            branch_id, name, result
         )
         if is_final:
             await self.add_result_to_final_store(name, result)
 
-    async def get_results_for_component(self, name: str) -> Any:
-        """Get results for a component using RunGraph."""
-        return await self.run_graph.get_result_for_component(
-            self.run_graph.run_id, name
+    async def get_results_for_component(self, name: str, branch_id: str | None = None) -> Any:
+        """Get results for a component using RunGraph from a specific branch."""
+        branch_to_use = branch_id or self.run_graph.run_id
+        return await self.run_graph.get_result_for_branch(
+            branch_to_use, name
         )
 
-    async def get_status_for_component(self, name: str) -> RunStatus:
-        status = await self.pipeline.store.get_status_for_component(self.run_id, name)
+    async def get_status_for_component(self, name: str, branch_id: str) -> RunStatus:
+        """Get status for a component in a specific branch."""
+        status_key = f"{self.run_id}:{name}:{branch_id}:status"
+        status = await self.pipeline.store.get(status_key)
         if status is None:
             return RunStatus.UNKNOWN
         return RunStatus(status)
@@ -281,7 +324,7 @@ class Orchestrator:
         will handle the task dependencies.
         """
         await self.event_notifier.notify_pipeline_started(self.run_id, data)
-        tasks = [self.run_task(root, data) for root in self.pipeline.roots()]
+        tasks = [self.run_task(root, data, self.run_graph.run_id) for root in self.pipeline.roots()]
         await asyncio.gather(*tasks)
         await self.event_notifier.notify_pipeline_finished(
             self.run_id, await self.pipeline.get_final_results(self.run_id)

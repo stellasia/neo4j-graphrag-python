@@ -236,3 +236,27 @@ class RunGraph(PipelineGraph[RunBranch, RunEdge]):
                 all_results.append(result)
         
         return all_results
+
+    def create_branch(
+        self,
+        parent_branch_id: str,
+        parent_component: Optional[str] = None,
+        parent_result_idx: Optional[int] = None,
+    ) -> str:
+        """
+        Create a new branch as a child of an existing branch.
+        This is a convenience method for the orchestrator.
+        
+        Args:
+            parent_branch_id: The ID of the parent branch
+            parent_component: The component that created this branch (optional)
+            parent_result_idx: The result index that created this branch (optional)
+            
+        Returns:
+            The new branch's ID
+        """
+        return self.add_branch(
+            parent_id=parent_branch_id,
+            parent_component=parent_component,
+            parent_result_idx=parent_result_idx,
+        )
