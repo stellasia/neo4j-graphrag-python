@@ -14,7 +14,7 @@
 #  limitations under the License.
 from __future__ import annotations
 
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 import neo4j
 from pydantic import validate_call
@@ -84,7 +84,7 @@ class Neo4jChunkReader(Component):
     async def run(
         self,
         lexical_graph_config: LexicalGraphConfig = LexicalGraphConfig(),
-    ) -> TextChunks:
+    ) -> AsyncGenerator[TextChunk, None]:
         """Reads text chunks from a Neo4j database.
 
         Args:
@@ -100,7 +100,6 @@ class Neo4jChunkReader(Component):
             database_=self.neo4j_database,
             routing_=neo4j.RoutingControl.READ,
         )
-        chunks = []
         for record in result:
             chunk = record.get("chunk")
             input_data = {
@@ -112,5 +111,4 @@ class Neo4jChunkReader(Component):
             ) is not None:
                 input_data["uid"] = uid
             input_data["metadata"] = chunk
-            chunks.append(TextChunk(**input_data))
-        return TextChunks(chunks=chunks)
+            yield TextChunk(**input_data)

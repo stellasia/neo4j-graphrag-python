@@ -16,7 +16,7 @@ import asyncio
 import datetime
 import logging
 from itertools import zip_longest
-from typing import Any, Dict, Optional
+from typing import Any, AsyncGenerator, Dict, Optional
 
 from pydantic import validate_call
 
@@ -56,7 +56,7 @@ class LexicalGraphBuilder(Component):
         self,
         text_chunks: TextChunks,
         document_info: Optional[DocumentInfo] = None,
-    ) -> GraphResult:
+    ) -> AsyncGenerator[GraphResult, None]:
         if document_info is None:
             logger.info(
                 "Document node not created in the lexical graph "

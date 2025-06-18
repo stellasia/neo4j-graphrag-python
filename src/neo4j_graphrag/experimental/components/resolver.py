@@ -17,7 +17,7 @@ from __future__ import annotations
 import abc
 import logging
 from itertools import combinations
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import Any, AsyncGenerator, List, Optional, TYPE_CHECKING
 
 
 try:
@@ -68,7 +68,7 @@ class EntityResolver(Component):
         self.driver = driver_config.override_user_agent(driver)
         self.filter_query = filter_query
 
-    async def run(self, *args: Any, **kwargs: Any) -> ResolutionStats:
+    async def run(self, *args: Any, **kwargs: Any) -> AsyncGenerator[ResolutionStats, None]:
         raise NotImplementedError()
 
 
@@ -109,7 +109,7 @@ class SinglePropertyExactMatchResolver(EntityResolver):
         self.resolve_property = resolve_property
         self.neo4j_database = neo4j_database
 
-    async def run(self) -> ResolutionStats:
+    async def run(self) -> AsyncGenerator[ResolutionStats, None]:
         """Resolve entities based on the following rule:
         For each entity label, entities with the same 'resolve_property' value
         (exact match) are grouped into a single node:
@@ -129,9 +129,10 @@ class SinglePropertyExactMatchResolver(EntityResolver):
         )
         number_of_nodes_to_resolve = records[0].get("c")
         if number_of_nodes_to_resolve == 0:
-            return ResolutionStats(
+            yield ResolutionStats(
                 number_of_nodes_to_resolve=0,
             )
+            return
         merge_nodes_query = (
             f"{match_query} "
             f"WITH entity, entity.{self.resolve_property} as prop "
@@ -162,7 +163,7 @@ class SinglePropertyExactMatchResolver(EntityResolver):
             merge_nodes_query, database_=self.neo4j_database
         )
         number_of_created_nodes = records[0].get("c")
-        return ResolutionStats(
+        yield ResolutionStats(
             number_of_nodes_to_resolve=number_of_nodes_to_resolve,
             number_of_created_nodes=number_of_created_nodes,
         )
@@ -220,7 +221,7 @@ class BasePropertySimilarityResolver(EntityResolver, abc.ABC, metaclass=Combined
         """
         pass
 
-    async def run(self) -> ResolutionStats:
+    async def run(self) -> AsyncGenerator[ResolutionStats, None]:
         match_query = "MATCH (entity:__Entity__)"
         if self.filter_query:
             match_query += f" {self.filter_query}"
@@ -291,7 +292,7 @@ class BasePropertySimilarityResolver(EntityResolver, abc.ABC, metaclass=Combined
                     merged_count += len(result)
             total_merged_nodes += merged_count
 
-        return ResolutionStats(
+        yield ResolutionStats(
             number_of_nodes_to_resolve=total_entities,
             number_of_created_nodes=total_merged_nodes,
         )
@@ -367,8 +368,9 @@ class SpaCySemanticMatchResolver(BasePropertySimilarityResolver):
         self.nlp = self._load_or_download_spacy_model(spacy_model)
         self.embedding_cache: dict[str, NDArray[np.float64]] = {}
 
-    async def run(self) -> ResolutionStats:
-        return await super().run()
+    async def run(self) -> AsyncGenerator[ResolutionStats, None]:
+        async for x in super().run():
+            yield x
 
     def compute_similarity(self, text_a: str, text_b: str) -> float:
         emb1 = self._get_embedding(text_a)
@@ -442,8 +444,9 @@ class FuzzyMatchResolver(BasePropertySimilarityResolver):
             neo4j_database,
         )
 
-    async def run(self) -> ResolutionStats:
-        return await super().run()
+    async def run(self) -> AsyncGenerator[ResolutionStats, None]:
+        async for x in super().run():
+            yield x
 
     def compute_similarity(self, text_a: str, text_b: str) -> float:
         # RapidFuzz's fuzz.WRatio returns a score from 0 to 100

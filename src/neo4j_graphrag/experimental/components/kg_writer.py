@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from abc import abstractmethod
-from typing import Any, Generator, Literal, Optional
+from typing import Any, AsyncGenerator, Generator, Literal, Optional
 
 import neo4j
 from pydantic import validate_call
@@ -73,7 +73,7 @@ class KGWriter(Component):
         self,
         graph: Neo4jGraph,
         lexical_graph_config: LexicalGraphConfig = LexicalGraphConfig(),
-    ) -> KGWriterModel:
+    ) -> AsyncGenerator[KGWriterModel, None]:
         """
         Writes the graph to a data store.
 
@@ -193,7 +193,7 @@ class Neo4jWriter(KGWriter):
         self,
         graph: Neo4jGraph,
         lexical_graph_config: LexicalGraphConfig = LexicalGraphConfig(),
-    ) -> KGWriterModel:
+    ) -> AsyncGenerator[KGWriterModel, None]:
         """Upserts a knowledge graph into a Neo4j database.
 
         Args:
@@ -209,7 +209,7 @@ class Neo4jWriter(KGWriter):
             for batch in batched(graph.relationships, self.batch_size):
                 self._upsert_relationships(batch)
 
-            return KGWriterModel(
+            yield KGWriterModel(
                 status="SUCCESS",
                 metadata={
                     "node_count": len(graph.nodes),
@@ -218,4 +218,4 @@ class Neo4jWriter(KGWriter):
             )
         except neo4j.exceptions.ClientError as e:
             logger.exception(e)
-            return KGWriterModel(status="FAILURE", metadata={"error": str(e)})
+            yield KGWriterModel(status="FAILURE", metadata={"error": str(e)})

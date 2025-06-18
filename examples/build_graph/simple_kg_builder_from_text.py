@@ -12,6 +12,7 @@ import logging
 
 import neo4j
 from neo4j_graphrag.embeddings import OpenAIEmbeddings
+from neo4j_graphrag.experimental.components.text_splitters.fixed_size_splitter import FixedSizeSplitter
 from neo4j_graphrag.experimental.pipeline.kg_builder import SimpleKGPipeline
 from neo4j_graphrag.experimental.pipeline.pipeline import PipelineResult
 from neo4j_graphrag.experimental.pipeline.types.schema import (
@@ -32,8 +33,8 @@ AUTH = ("neo4j", "password")
 DATABASE = "neo4j"
 
 # Text to process
-TEXT = """The son of Duke Leto Atreides and the Lady Jessica, Paul is the heir of House Atreides,
-an aristocratic family that rules the planet Caladan, the rainy planet, since 10191."""
+TEXT = """The son of Duke Leto Atreides and the Lady Jessica, is the heir of House Atreides,
+an aristocratic family that rules the planet Caladan, the rainy planet, since 10191. Paul is a person."""
 
 # Instantiate Entity and Relation objects. This defines the
 # entities and relations the LLM will be looking for in the text.
@@ -78,6 +79,7 @@ async def define_and_run_pipeline(
         },
         from_pdf=False,
         neo4j_database=DATABASE,
+        text_splitter=FixedSizeSplitter(chunk_size=60, chunk_overlap=0),
     )
     return await kg_builder.run_async(text=TEXT)
 

@@ -17,7 +17,7 @@ from __future__ import annotations
 import io
 from abc import abstractmethod
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import AsyncGenerator, Dict, Optional, Union
 
 import fsspec
 import pypdf
@@ -42,7 +42,7 @@ class DataLoader(Component):
     @abstractmethod
     async def run(
         self, filepath: Path, metadata: Optional[Dict[str, str]] = None
-    ) -> PdfDocument:
+    ) -> AsyncGenerator[PdfDocument, None]:
         pass
 
 
@@ -76,7 +76,7 @@ class PdfLoader(DataLoader):
         filepath: Union[str, Path],
         metadata: Optional[Dict[str, str]] = None,
         fs: Optional[Union[AbstractFileSystem, str]] = None,
-    ) -> PdfDocument:
+    ) -> AsyncGenerator[PdfDocument, None]:
         if not isinstance(filepath, str):
             filepath = str(filepath)
         if isinstance(fs, str):
@@ -84,7 +84,7 @@ class PdfLoader(DataLoader):
         elif fs is None:
             fs = LocalFileSystem()
         text = self.load_file(filepath, fs)
-        return PdfDocument(
+        yield PdfDocument(
             text=text,
             document_info=DocumentInfo(
                 path=filepath,

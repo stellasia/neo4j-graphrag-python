@@ -12,6 +12,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+from typing import AsyncGenerator
 from pydantic import validate_call
 
 from neo4j_graphrag.embeddings.base import Embedder
@@ -64,7 +65,7 @@ class TextChunkEmbedder(Component):
         )
 
     @validate_call
-    async def run(self, text_chunks: TextChunks) -> TextChunks:
+    async def run(self, text_chunk: TextChunk) -> AsyncGenerator[TextChunk, None]:
         """Embed a list of text chunks.
 
         Args:
@@ -73,6 +74,4 @@ class TextChunkEmbedder(Component):
         Returns:
             TextChunks: The input text chunks with each one having an added embedding.
         """
-        return TextChunks(
-            chunks=[self._embed_chunk(text_chunk) for text_chunk in text_chunks.chunks]
-        )
+        yield self._embed_chunk(text_chunk)

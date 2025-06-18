@@ -14,7 +14,7 @@
 #  limitations under the License.
 import enum
 import logging
-from typing import Optional, Any, TypeVar, Generic, Union
+from typing import AsyncGenerator, Optional, Any, TypeVar, Generic, Union
 
 from pydantic import validate_call, BaseModel
 
@@ -135,13 +135,13 @@ class GraphPruning(Component):
         self,
         graph: Neo4jGraph,
         schema: Optional[GraphSchema] = None,
-    ) -> GraphPruningResult:
+    ) -> AsyncGenerator[GraphPruningResult, None]:
         if schema is not None:
             new_graph, pruning_stats = self._clean_graph(graph, schema)
         else:
             new_graph = graph
             pruning_stats = PruningStats()
-        return GraphPruningResult(
+        yield GraphPruningResult(
             graph=new_graph,
             pruning_stats=pruning_stats,
         )

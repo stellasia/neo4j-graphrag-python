@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import warnings
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union, Sequence
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Tuple, Union, Sequence
 from pathlib import Path
 
 from pydantic import (
@@ -364,7 +364,7 @@ class SchemaBuilder(Component):
         node_types: Sequence[NodeType],
         relationship_types: Optional[Sequence[RelationshipType]] = None,
         patterns: Optional[Sequence[Tuple[str, str, str]]] = None,
-    ) -> GraphSchema:
+    ) -> AsyncGenerator[GraphSchema, None]:
         """
         Asynchronously constructs and returns a GraphSchema object.
 
@@ -376,7 +376,7 @@ class SchemaBuilder(Component):
         Returns:
             GraphSchema: A configured schema object, constructed asynchronously.
         """
-        return self.create_schema_model(node_types, relationship_types, patterns)
+        yield self.create_schema_model(node_types, relationship_types, patterns)
 
 
 class SchemaFromTextExtractor(Component):
@@ -398,7 +398,7 @@ class SchemaFromTextExtractor(Component):
         self._llm_params: dict[str, Any] = llm_params or {}
 
     @validate_call
-    async def run(self, text: str, examples: str = "", **kwargs: Any) -> GraphSchema:
+    async def run(self, text: str, examples: str = "", **kwargs: Any) ->  AsyncGenerator[GraphSchema, None]:
         """
         Asynchronously extracts the schema from text and returns a GraphSchema object.
 
@@ -455,7 +455,7 @@ class SchemaFromTextExtractor(Component):
             "patterns"
         )
 
-        return GraphSchema.model_validate(
+        yield GraphSchema.model_validate(
             {
                 "node_types": extracted_node_types,
                 "relationship_types": extracted_relationship_types,

@@ -18,7 +18,7 @@ import asyncio
 import enum
 import json
 import logging
-from typing import Any, List, Optional, Union, cast
+from typing import Any, AsyncGenerator, List, Optional, Union, cast
 
 import json_repair
 from pydantic import ValidationError, validate_call
@@ -135,7 +135,7 @@ class EntityRelationExtractor(Component):
         document_info: Optional[DocumentInfo] = None,
         lexical_graph_config: Optional[LexicalGraphConfig] = None,
         **kwargs: Any,
-    ) -> Neo4jGraph:
+    ) -> AsyncGenerator[Neo4jGraph, None]:
         raise NotImplementedError()
 
     def update_ids(
@@ -289,13 +289,13 @@ class LLMEntityRelationExtractor(EntityRelationExtractor):
     @validate_call
     async def run(
         self,
-        chunks: TextChunks,
+        chunk: TextChunk,
         document_info: Optional[DocumentInfo] = None,
         lexical_graph_config: Optional[LexicalGraphConfig] = None,
         schema: Union[GraphSchema, None] = None,
         examples: str = "",
         **kwargs: Any,
-    ) -> Neo4jGraph:
+    ) -> AsyncGenerator[Neo4jGraph, None]:
         """Perform entity and relation extraction for all chunks in a list.
 
         Optionally, creates the "lexical graph" by adding nodes and relationships
@@ -312,31 +312,39 @@ class LLMEntityRelationExtractor(EntityRelationExtractor):
         """
         lexical_graph_builder = None
         lexical_graph = None
-        if self.create_lexical_graph:
-            config = lexical_graph_config or LexicalGraphConfig()
-            lexical_graph_builder = LexicalGraphBuilder(config=config)
-            lexical_graph_result = await lexical_graph_builder.run(
-                text_chunks=chunks, document_info=document_info
-            )
-            lexical_graph = lexical_graph_result.graph
-        elif lexical_graph_config:
-            lexical_graph_builder = LexicalGraphBuilder(config=lexical_graph_config)
+        # if self.create_lexical_graph:
+        #     config = lexical_graph_config or LexicalGraphConfig()
+        #     lexical_graph_builder = LexicalGraphBuilder(config=config)
+        #     lexical_graph_result = await lexical_graph_builder.run(
+        #         text_chunk=chunk, document_info=document_info
+        #     )
+        #     lexical_graph = lexical_graph_result.graph
+        # elif lexical_graph_config:
+        #     lexical_graph_builder = LexicalGraphBuilder(config=lexical_graph_config)
         schema = schema or GraphSchema(
             node_types=(),
         )
         examples = examples or ""
         sem = asyncio.Semaphore(self.max_concurrency)
-        tasks = [
-            self.run_for_chunk(
+        # tasks = [
+        #     self.run_for_chunk(
+        #         sem,
+        #         chunk,
+        #         schema,
+        #         examples,
+        #         lexical_graph_builder,
+        #     )
+        #     for chunk in chunks.chunks
+        # ]
+        chunk_graphs: list[Neo4jGraph] = [
+            await self.run_for_chunk(
                 sem,
                 chunk,
                 schema,
                 examples,
                 lexical_graph_builder,
             )
-            for chunk in chunks.chunks
         ]
-        chunk_graphs: list[Neo4jGraph] = list(await asyncio.gather(*tasks))
         graph = self.combine_chunk_graphs(lexical_graph, chunk_graphs)
         logger.debug(f"Extracted graph: {prettify(graph)}")
-        return graph
+        yield graph

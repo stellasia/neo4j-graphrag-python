@@ -320,7 +320,7 @@ class SimpleKGPipelineConfig(TemplatePipelineConfig):
                 start="splitter",
                 end="chunk_embedder",
                 input_config={
-                    "text_chunks": "splitter",
+                    "text_chunk": "splitter",
                 },
             )
         )
@@ -329,7 +329,7 @@ class SimpleKGPipelineConfig(TemplatePipelineConfig):
                 start="chunk_embedder",
                 end="extractor",
                 input_config={
-                    "chunks": "chunk_embedder",
+                    "chunk": "chunk_embedder",
                 },
             )
         )

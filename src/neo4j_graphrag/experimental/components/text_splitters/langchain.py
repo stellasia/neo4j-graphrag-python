@@ -13,6 +13,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 from __future__ import annotations
+from typing import AsyncGenerator
 
 from langchain_text_splitters import TextSplitter as LangChainTextSplitter
 
@@ -44,7 +45,7 @@ class LangChainTextSplitterAdapter(TextSplitter):
     def __init__(self, text_splitter: LangChainTextSplitter) -> None:
         self.text_splitter = text_splitter
 
-    async def run(self, text: str) -> TextChunks:
+    async def run(self, text: str) -> AsyncGenerator[TextChunk, None]:
         """
         Splits text into chunks.
 
@@ -55,8 +56,5 @@ class LangChainTextSplitterAdapter(TextSplitter):
             TextChunks: The text split into chunks.
         """
         chunks = self.text_splitter.split_text(text)
-        return TextChunks(
-            chunks=[
-                TextChunk(text=chunk, index=index) for index, chunk in enumerate(chunks)
-            ]
-        )
+        for index, chunk in enumerate(chunks):
+            yield TextChunk(text=chunk, index=index) 

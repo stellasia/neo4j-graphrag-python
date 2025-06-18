@@ -45,7 +45,7 @@ class PdfDocument(DataModel):
     document_info: DocumentInfo
 
 
-class TextChunk(BaseModel):
+class TextChunk(DataModel):
     """A chunk of text split from a document by a text splitter.
 
     Attributes:

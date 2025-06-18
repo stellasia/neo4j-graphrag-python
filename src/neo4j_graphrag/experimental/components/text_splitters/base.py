@@ -15,8 +15,9 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+from typing import AsyncGenerator
 
-from neo4j_graphrag.experimental.components.types import TextChunks
+from neo4j_graphrag.experimental.components.types import TextChunk
 from neo4j_graphrag.experimental.pipeline.component import Component
 
 
@@ -24,7 +25,7 @@ class TextSplitter(Component):
     """Interface for a text splitter."""
 
     @abstractmethod
-    async def run(self, text: str) -> TextChunks:
+    async def run(self, text: str) -> AsyncGenerator[TextChunk, None]:
         """Splits a piece of text into chunks.
 
         Args:

@@ -12,6 +12,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+from typing import AsyncGenerator
 from pydantic import validate_call
 
 from neo4j_graphrag.experimental.components.text_splitters.base import TextSplitter
@@ -104,7 +105,7 @@ class FixedSizeSplitter(TextSplitter):
         self.approximate = approximate
 
     @validate_call
-    async def run(self, text: str) -> TextChunks:
+    async def run(self, text: str) -> AsyncGenerator[TextChunk, None]:
         """Splits a piece of text into chunks.
 
         Args:
@@ -113,7 +114,6 @@ class FixedSizeSplitter(TextSplitter):
         Returns:
             TextChunks: A list of chunks.
         """
-        chunks = []
         index = 0
         step = self.chunk_size - self.chunk_overlap
         text_length = len(text)
@@ -141,9 +141,7 @@ class FixedSizeSplitter(TextSplitter):
                 end = min(start + self.chunk_size, text_length)
 
             chunk_text = text[start:end]
-            chunks.append(TextChunk(text=chunk_text, index=index))
+            yield TextChunk(text=chunk_text, index=index)
             index += 1
 
             approximate_start = start + step
-
-        return TextChunks(chunks=chunks)
