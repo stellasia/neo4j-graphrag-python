@@ -20,15 +20,32 @@ from .ollama_llm import OllamaLLM
 from .openai_llm import AzureOpenAILLM, OpenAILLM
 from .types import LLMResponse
 from .vertexai_llm import VertexAILLM
+from .rate_limiter import (
+    BaseRateLimiter,
+    SlotBucketRateLimiter,
+    TokenBucketRateLimiter,
+    TokenTrackingRateLimiter,
+    CompositeRateLimiter,
+    APIFeedbackRateLimiter,
+    RetryConfig,
+)
 
 __all__ = [
     "AnthropicLLM",
+    "AzureOpenAILLM",
     "CohereLLM",
-    "LLMResponse",
     "LLMInterface",
+    "LLMResponse",
+    "MistralAILLM",
     "OllamaLLM",
     "OpenAILLM",
     "VertexAILLM",
-    "AzureOpenAILLM",
-    "MistralAILLM",
+    # Rate limiting exports
+    "BaseRateLimiter",
+    "SlotBucketRateLimiter",
+    "TokenBucketRateLimiter",
+    "TokenTrackingRateLimiter",
+    "CompositeRateLimiter",
+    "APIFeedbackRateLimiter",
+    "RetryConfig",
 ]
