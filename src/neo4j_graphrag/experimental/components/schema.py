@@ -45,6 +45,9 @@ from neo4j_graphrag.llm import LLMInterface
 from neo4j_graphrag.utils.file_handler import FileHandler, FileFormat
 
 
+logger = logging.getLogger(__name__)
+
+
 class PropertyType(BaseModel):
     """
     Represents a property on a node or relationship in the graph.
@@ -462,3 +465,173 @@ class SchemaFromTextExtractor(Component):
                 "patterns": extracted_patterns,
             }
         )
+
+
+class SchemaFromImporterExtractor(Component):
+    def __init__(
+        self,
+        file_path: str,
+        additional_properties: bool = False,
+        additional_node_types: bool = False,
+        additional_relationship_types: bool = False,
+        additional_patterns: bool = False,
+    ) -> None:
+        super().__init__()
+        self.file_path = file_path
+        self.additional_properties = additional_properties
+        self.additional_node_types = additional_node_types
+        self.additional_relationship_types = additional_relationship_types
+        self.additional_patterns = additional_patterns
+
+        self._id_index = {}
+        self._version = ""
+
+    @staticmethod
+    def _property_type_mapping(type: str) -> str:
+        if type == "datetime":
+            type = "local_datetime"
+        return type.upper()
+
+    def _parse_property_dict(self, property_dict: dict[str, Any]) -> PropertyType:
+        return PropertyType(
+            name=property_dict.get("token"),
+            type=self._property_type_mapping(property_dict.get("type", {}).get("type", "")),  # type: ignore
+            required=not property_dict.get("nullable", True),
+        )
+
+    def _parse_node_dict(self, node_dict: dict[str, Any]) -> NodeType:
+        """
+        Example node_dict input:
+
+            {
+            "$id": "nl:1",
+            "token": "Person",
+            "properties": [
+              {
+                "$id": "p:1",
+                "token": "name",
+                "type": {
+                  "type": "string"
+                },
+                "nullable": true
+              },
+              {
+                "$id": "p:2",
+                "token": "height",
+                "type": {
+                  "type": "integer"
+                },
+                "nullable": true
+              }
+            ]
+          }
+
+        Args:
+            node_dict:
+
+        Returns:
+
+        """
+        self._id_index[node_dict["$id"]] = node_dict["token"]
+        return NodeType(
+            label=node_dict["token"],
+            properties=[
+                self._parse_property_dict(p)
+                for p in node_dict["properties"]
+            ],
+            additional_properties=self.additional_properties,
+        )
+
+    def _parse_relationship_dict(self, rel_dict: dict[str, Any]) -> RelationshipType:
+        self._id_index[rel_dict["$id"]] = rel_dict["token"]
+        return RelationshipType(
+            label=rel_dict["token"],
+            properties=[
+                self._parse_property_dict(p)
+                for p in rel_dict["properties"]
+            ],
+            additional_properties=self.additional_properties,
+        )
+
+    def _parse_node_object_dict(self, node_object: dict[str, Any]) -> None:
+        labels = node_object.get("labels", [])
+        if len(labels) == 0:
+            return
+        if len(labels) > 1:
+            raise ValueError()
+        label = labels[0]
+        label_ref = label["$ref"].replace("#", "")
+        node_label = self._id_index[label_ref]
+        self._id_index[node_object["$id"]] = node_label
+
+    def _parse_relationship_object_dict(self, rel_object: dict[str, Any]) -> tuple[str, str, str]:
+        source_id = rel_object["from"]["$ref"].replace("#", "")
+        source_node = self._id_index[source_id]
+        rel_id = rel_object["type"]["$ref"].replace("#", "")
+        rel = self._id_index[rel_id]
+        to_id = rel_object["to"]["$ref"].replace("#", "")
+        to_node = self._id_index[to_id]
+        return (
+            source_node,
+            rel,
+            to_node,
+        )
+
+    def _parse_raw_schema(self, raw_schema: dict[str, Any]) -> GraphSchema:
+        """
+
+        Args:
+            raw_schema:
+
+        Returns:
+
+        """
+        node_types = []
+        relationship_types = []
+        patterns = []
+
+        # version = raw_schema.get("version")
+        raw_graph_schema = raw_schema.get("dataModel", {}).get("graphSchemaRepresentation", {}).get("graphSchema")
+        if not raw_graph_schema:
+            raise ValueError()
+
+        version = raw_graph_schema.get("version")
+        if version != "1.0.0":
+            logger.info("Graph Schema does not have the expected version, parsing might not work as expected.")
+
+        # node types
+        nodes = raw_graph_schema.get("nodeLabels")
+        for node in nodes:
+            node_type = self._parse_node_dict(node)
+            node_types.append(node_type)
+
+        # relationship types
+        relationships = raw_graph_schema.get("relationshipTypes")
+        for relationship in relationships:
+            relationship_type = self._parse_relationship_dict(relationship)
+            relationship_types.append(relationship_type)
+
+        # node objects
+        node_objects = raw_graph_schema.get("nodeObjectTypes")
+        for node_object in node_objects:
+            self._parse_node_object_dict(node_object)
+
+        # relationship objects for pattern
+        relationship_objects = raw_graph_schema.get("relationshipObjectTypes")
+        for relationship_object in relationship_objects:
+            pattern = self._parse_relationship_object_dict(relationship_object)
+            patterns.append(pattern)
+
+        return GraphSchema.model_validate({
+            "node_types": node_types,
+            "relationship_types": relationship_types,
+            "patterns": patterns,
+            "additional_node_types": self.additional_node_types,
+            "additional_relationship_types": self.additional_relationship_types,
+            "additional_patterns": self.additional_patterns,
+        })
+
+    async def run(self) -> GraphSchema:
+        with open(self.file_path) as file:
+            raw_schema = json.load(file)
+        return self._parse_raw_schema(raw_schema)
