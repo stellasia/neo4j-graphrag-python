@@ -50,9 +50,17 @@ from .types import (
 )
 
 from neo4j_graphrag.tool import Tool
+from .rate_limiter import BaseRateLimiter, RetryConfig
 
 if TYPE_CHECKING:
     import openai
+
+# Try to import tiktoken for precise token counting
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    TIKTOKEN_AVAILABLE = False
 
 
 class BaseOpenAILLM(LLMInterface, abc.ABC):
@@ -63,6 +71,8 @@ class BaseOpenAILLM(LLMInterface, abc.ABC):
         self,
         model_name: str,
         model_params: Optional[dict[str, Any]] = None,
+        rate_limiter: Optional[BaseRateLimiter] = None,
+        retry_config: Optional[RetryConfig] = None,
     ):
         """
         Base class for OpenAI LLM.
@@ -72,6 +82,8 @@ class BaseOpenAILLM(LLMInterface, abc.ABC):
         Args:
             model_name (str):
             model_params (str): Parameters like temperature that will be passed to the model when text is sent to it. Defaults to None.
+            rate_limiter (Optional[BaseRateLimiter]): Rate limiter to control request frequency. Defaults to None.
+            retry_config (Optional[RetryConfig]): Configuration for retry behavior on rate limit errors. Defaults to None.
         """
         try:
             import openai
@@ -81,7 +93,16 @@ class BaseOpenAILLM(LLMInterface, abc.ABC):
                 Please install it with `pip install "neo4j-graphrag[openai]"`."""
             )
         self.openai = openai
-        super().__init__(model_name, model_params)
+        super().__init__(model_name, model_params, rate_limiter, retry_config)
+        
+        # Initialize tokenizer for precise token counting
+        self._tokenizer = None
+        if TIKTOKEN_AVAILABLE:
+            try:
+                self._tokenizer = tiktoken.encoding_for_model(model_name)
+            except KeyError:
+                # Fallback to cl100k_base for unknown models (most OpenAI models use this)
+                self._tokenizer = tiktoken.get_encoding("cl100k_base")
 
     def get_messages(
         self,
@@ -124,62 +145,102 @@ class BaseOpenAILLM(LLMInterface, abc.ABC):
         except AttributeError:
             raise LLMGenerationError(f"Tool {tool} is not a valid Tool object")
 
-    def invoke(
+    def _invoke_openai(
         self,
         input: str,
         message_history: Optional[Union[List[LLMMessage], MessageHistory]] = None,
         system_instruction: Optional[str] = None,
     ) -> LLMResponse:
-        """Sends a text input to the OpenAI chat completion model
-        and returns the response's content.
+        """Internal method to call OpenAI API."""
+        if isinstance(message_history, MessageHistory):
+            message_history = message_history.messages
+        
+        response = self.client.chat.completions.create(
+            messages=self.get_messages(input, message_history, system_instruction),
+            model=self.model_name,
+            **self.model_params,
+        )
+        
+        # Update rate limiter with API feedback from headers
+        if hasattr(response, '_response') and hasattr(response._response, 'headers'):
+            headers = dict(response._response.headers)
+            self._update_from_api_response_if_supported(headers)
+        
+        # Update token usage if rate limiter supports it
+        if response.usage and response.usage.total_tokens:
+            self._update_token_usage_if_supported(response.usage.total_tokens)
+        
+        content = response.choices[0].message.content or ""
+        return LLMResponse(content=content)
 
-        Args:
-            input (str): Text sent to the LLM.
-            message_history (Optional[Union[List[LLMMessage], MessageHistory]]): A collection previous messages,
-                with each message having a specific role assigned.
-            system_instruction (Optional[str]): An option to override the llm system message for this invocation.
+    async def _ainvoke_openai(
+        self,
+        input: str,
+        message_history: Optional[Union[List[LLMMessage], MessageHistory]] = None,
+        system_instruction: Optional[str] = None,
+    ) -> LLMResponse:
+        """Internal async method to call OpenAI API."""
+        if isinstance(message_history, MessageHistory):
+            message_history = message_history.messages
+        
+        response = await self.async_client.chat.completions.create(
+            messages=self.get_messages(input, message_history, system_instruction),
+            model=self.model_name,
+            **self.model_params,
+        )
+        
+        # Update rate limiter with API feedback from headers
+        if hasattr(response, '_response') and hasattr(response._response, 'headers'):
+            headers = dict(response._response.headers)
+            await self._aupdate_from_api_response_if_supported(headers)
+        
+        # Update token usage if rate limiter supports it
+        if response.usage and response.usage.total_tokens:
+            await self._aupdate_token_usage_if_supported(response.usage.total_tokens)
+        
+        content = response.choices[0].message.content or ""
+        return LLMResponse(content=content)
 
-        Returns:
-            LLMResponse: The response from OpenAI.
-
-        Raises:
-            LLMGenerationError: If anything goes wrong.
+    def _invoke(
+        self,
+        input: str,
+        message_history: Optional[Union[List[LLMMessage], MessageHistory]] = None,
+        system_instruction: Optional[str] = None,
+    ) -> LLMResponse:
+        """Internal method that implements the LLM invocation for OpenAI.
+        
+        Rate limiting is handled automatically by the base class.
         """
         try:
-            if isinstance(message_history, MessageHistory):
-                message_history = message_history.messages
-            response = self.client.chat.completions.create(
-                messages=self.get_messages(input, message_history, system_instruction),
-                model=self.model_name,
-                **self.model_params,
-            )
-            content = response.choices[0].message.content or ""
-            return LLMResponse(content=content)
+            return self._invoke_openai(input, message_history, system_instruction)
         except self.openai.OpenAIError as e:
             raise LLMGenerationError(e)
 
-    def invoke_with_tools(
+    async def _ainvoke(
+        self,
+        input: str,
+        message_history: Optional[Union[List[LLMMessage], MessageHistory]] = None,
+        system_instruction: Optional[str] = None,
+    ) -> LLMResponse:
+        """Internal async method that implements the LLM invocation for OpenAI.
+        
+        Rate limiting is handled automatically by the base class.
+        """
+        try:
+            return await self._ainvoke_openai(input, message_history, system_instruction)
+        except self.openai.OpenAIError as e:
+            raise LLMGenerationError(e)
+
+    def _invoke_with_tools(
         self,
         input: str,
         tools: Sequence[Tool],  # Tools definition as a sequence of Tool objects
         message_history: Optional[Union[List[LLMMessage], MessageHistory]] = None,
         system_instruction: Optional[str] = None,
     ) -> ToolCallResponse:
-        """Sends a text input to the OpenAI chat completion model with tool definitions
-        and retrieves a tool call response.
-
-        Args:
-            input (str): Text sent to the LLM.
-            tools (List[Tool]): List of Tools for the LLM to choose from.
-            message_history (Optional[Union[List[LLMMessage], MessageHistory]]): A collection previous messages,
-                with each message having a specific role assigned.
-            system_instruction (Optional[str]): An option to override the llm system message for this invocation.
-
-        Returns:
-            ToolCallResponse: The response from the LLM containing a tool call.
-
-        Raises:
-            LLMGenerationError: If anything goes wrong.
+        """Internal method that implements tool calling for OpenAI.
+        
+        Rate limiting is handled automatically by the base class.
         """
         try:
             if isinstance(message_history, MessageHistory):
@@ -202,6 +263,15 @@ class BaseOpenAILLM(LLMInterface, abc.ABC):
                 tool_choice="auto",
                 **params,
             )
+            
+            # Update rate limiter with API feedback from headers
+            if hasattr(response, '_response') and hasattr(response._response, 'headers'):
+                headers = dict(response._response.headers)
+                self._update_from_api_response_if_supported(headers)
+            
+            # Update token usage if rate limiter supports it
+            if response.usage and response.usage.total_tokens:
+                self._update_token_usage_if_supported(response.usage.total_tokens)
 
             message = response.choices[0].message
 
@@ -232,62 +302,16 @@ class BaseOpenAILLM(LLMInterface, abc.ABC):
         except self.openai.OpenAIError as e:
             raise LLMGenerationError(e)
 
-    async def ainvoke(
-        self,
-        input: str,
-        message_history: Optional[Union[List[LLMMessage], MessageHistory]] = None,
-        system_instruction: Optional[str] = None,
-    ) -> LLMResponse:
-        """Asynchronously sends a text input to the OpenAI chat
-        completion model and returns the response's content.
-
-        Args:
-            input (str): Text sent to the LLM.
-            message_history (Optional[Union[List[LLMMessage], MessageHistory]]): A collection previous messages,
-                with each message having a specific role assigned.
-            system_instruction (Optional[str]): An option to override the llm system message for this invocation.
-
-        Returns:
-            LLMResponse: The response from OpenAI.
-
-        Raises:
-            LLMGenerationError: If anything goes wrong.
-        """
-        try:
-            if isinstance(message_history, MessageHistory):
-                message_history = message_history.messages
-            response = await self.async_client.chat.completions.create(
-                messages=self.get_messages(input, message_history, system_instruction),
-                model=self.model_name,
-                **self.model_params,
-            )
-            content = response.choices[0].message.content or ""
-            return LLMResponse(content=content)
-        except self.openai.OpenAIError as e:
-            raise LLMGenerationError(e)
-
-    async def ainvoke_with_tools(
+    async def _ainvoke_with_tools(
         self,
         input: str,
         tools: Sequence[Tool],  # Tools definition as a sequence of Tool objects
         message_history: Optional[Union[List[LLMMessage], MessageHistory]] = None,
         system_instruction: Optional[str] = None,
     ) -> ToolCallResponse:
-        """Asynchronously sends a text input to the OpenAI chat completion model with tool definitions
-        and retrieves a tool call response.
-
-        Args:
-            input (str): Text sent to the LLM.
-            tools (List[Tool]): List of Tools for the LLM to choose from.
-            message_history (Optional[Union[List[LLMMessage], MessageHistory]]): A collection previous messages,
-                with each message having a specific role assigned.
-            system_instruction (Optional[str]): An option to override the llm system message for this invocation.
-
-        Returns:
-            ToolCallResponse: The response from the LLM containing a tool call.
-
-        Raises:
-            LLMGenerationError: If anything goes wrong.
+        """Internal async method that implements tool calling for OpenAI.
+        
+        Rate limiting is handled automatically by the base class.
         """
         try:
             if isinstance(message_history, MessageHistory):
@@ -310,6 +334,15 @@ class BaseOpenAILLM(LLMInterface, abc.ABC):
                 tool_choice="auto",
                 **params,
             )
+            
+            # Update rate limiter with API feedback from headers
+            if hasattr(response, '_response') and hasattr(response._response, 'headers'):
+                headers = dict(response._response.headers)
+                await self._aupdate_from_api_response_if_supported(headers)
+            
+            # Update token usage if rate limiter supports it
+            if response.usage and response.usage.total_tokens:
+                await self._aupdate_token_usage_if_supported(response.usage.total_tokens)
 
             message = response.choices[0].message
 
@@ -341,6 +374,68 @@ class BaseOpenAILLM(LLMInterface, abc.ABC):
         except self.openai.OpenAIError as e:
             raise LLMGenerationError(e)
 
+    def _count_message_tokens(self, messages: Iterable[ChatCompletionMessageParam]) -> int:
+        """Count tokens in messages using tiktoken for precise counting."""
+        if not self._tokenizer:
+            # Fallback estimation if tiktoken not available
+            total_chars = sum(len(str(msg.get('content', ''))) for msg in messages)
+            return max(1, total_chars // 4)  # Rough estimate: 4 chars per token
+        
+        total_tokens = 0
+        
+        # Count tokens for each message
+        for message in messages:
+            # OpenAI chat format overhead: each message has ~4 tokens of overhead
+            total_tokens += 4
+            
+            # Count content tokens
+            content = message.get('content', '')
+            if content:
+                total_tokens += len(self._tokenizer.encode(str(content)))
+            
+            # Count role tokens
+            role = message.get('role', '')
+            if role:
+                total_tokens += len(self._tokenizer.encode(role))
+        
+        # Add 2 tokens for the assistant's reply priming
+        total_tokens += 2
+        
+        return total_tokens
+
+    def _count_tools_tokens(self, tools: Optional[Sequence[Tool]]) -> int:
+        """Count tokens used by tool definitions."""
+        if not tools or not self._tokenizer:
+            return 0
+        
+        total_tokens = 0
+        for tool in tools:
+            # Convert tool to OpenAI format and count tokens
+            tool_dict = self._convert_tool_to_openai_format(tool)
+            tool_json = json.dumps(tool_dict)
+            total_tokens += len(self._tokenizer.encode(tool_json))
+        
+        return total_tokens
+
+    def _estimate_input_tokens(
+        self,
+        input: str,
+        message_history: Optional[Union[List[LLMMessage], MessageHistory]] = None,
+        system_instruction: Optional[str] = None,
+        tools: Optional[Sequence[Tool]] = None,
+    ) -> int:
+        """Estimate total input tokens for a request."""
+        # Get messages that will be sent
+        messages = list(self.get_messages(input, message_history, system_instruction))
+        
+        # Count message tokens
+        message_tokens = self._count_message_tokens(messages)
+        
+        # Count tool tokens
+        tool_tokens = self._count_tools_tokens(tools)
+        
+        return message_tokens + tool_tokens
+
 
 class OpenAILLM(BaseOpenAILLM):
     def __init__(
@@ -358,7 +453,11 @@ class OpenAILLM(BaseOpenAILLM):
             model_params (str): Parameters like temperature that will be passed to the model when text is sent to it. Defaults to None.
             kwargs: All other parameters will be passed to the openai.OpenAI init.
         """
-        super().__init__(model_name, model_params)
+        # Extract rate limiting parameters from kwargs if present
+        rate_limiter = kwargs.pop('rate_limiter', None)
+        retry_config = kwargs.pop('retry_config', None)
+        
+        super().__init__(model_name, model_params, rate_limiter, retry_config)
         self.client = self.openai.OpenAI(**kwargs)
         self.async_client = self.openai.AsyncOpenAI(**kwargs)
 
@@ -379,6 +478,10 @@ class AzureOpenAILLM(BaseOpenAILLM):
             model_params (str): Parameters like temperature that will be passed to the model when text is sent to it. Defaults to None.
             kwargs: All other parameters will be passed to the openai.OpenAI init.
         """
-        super().__init__(model_name, model_params)
+        # Extract rate limiting parameters from kwargs if present
+        rate_limiter = kwargs.pop('rate_limiter', None)
+        retry_config = kwargs.pop('retry_config', None)
+        
+        super().__init__(model_name, model_params, rate_limiter, retry_config)
         self.client = self.openai.AzureOpenAI(**kwargs)
         self.async_client = self.openai.AsyncAzureOpenAI(**kwargs)
