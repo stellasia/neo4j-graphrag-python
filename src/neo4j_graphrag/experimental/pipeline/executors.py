@@ -66,8 +66,8 @@ class RayExecutor(LocalExecutor):
         try:
             import ray
 
-            if not ray.is_initialized():
-                ray.init(address=address, namespace="graphrag")
+            # if not ray.is_initialized():
+            #     ray.init(address=address, namespace="graphrag")
 
             # Define the remote runner lazily inside the initialisation so that
             # it exists only when ray is available.
