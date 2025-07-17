@@ -23,6 +23,9 @@ import asyncio
 import time
 from pathlib import Path
 from typing import List
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from neo4j_graphrag.experimental.pipeline.config.runner import PipelineRunner
 from neo4j_graphrag.experimental.pipeline.executors import LocalExecutor, RayExecutor

@@ -112,9 +112,20 @@ class RayExecutor(LocalExecutor):
 
         import cloudpickle
 
-        task_bytes = cloudpickle.dumps(task)
+        try:
+            task_bytes = cloudpickle.dumps(task)
+        except Exception as exc:  # noqa: BLE001
+            # Component (e.g., holding Neo4j driver) is not picklable – run locally.
+            # This keeps the pipeline working even if some tasks cannot be off-loaded.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "RayExecutor fallback to LocalExecutor for %s: %s", task.name, exc
+            )
+            return await super().submit(task, context, inputs)
+
         obj_ref = self._remote_runner.remote(task_bytes, inputs)
-        res = await self._ray.get(obj_ref)
+        res = self._ray.get(obj_ref)
         if res is None:
             return None
         return RunResult(result=res)
