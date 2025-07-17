@@ -410,3 +410,120 @@ poetry run pytest tests/e2e
 
 - [The official Neo4j Python driver](https://github.com/neo4j/neo4j-python-driver)
 - [Neo4j GenAI integrations](https://neo4j.com/docs/cypher-manual/current/genai-integrations/)
+
+
+## Distributed execution with RayExecutor (experimental)
+
+> ⚠️  This feature is in **spike / experimental** mode.  APIs may change.
+
+`neo4j-graphrag` can execute each component of a Pipeline on a Ray cluster.  The
+only code change you need is to pass a `RayExecutor` instance when you build the
+Pipeline (or indirectly when you use `SimpleKGPipeline`).  Everything else
+remains identical.
+
+### 1 – Install Ray
+
+```bash
+# minimal CPU-only install
+pip install "ray[default]"
+
+# GPU build (CUDA 11.x)
+# pip install "ray[default]==2.*"  # choose matching version
+```
+
+If you installed `neo4j-graphrag` with the **experimental extra** you may
+already have ray:
+
+```bash
+pip install "neo4j-graphrag[experimental]"
+```
+
+### 2 – Start a local Ray cluster (quick test)
+
+In a terminal:
+
+```bash
+ray start --head  # prints the connection address, usually 127.0.0.1:6379
+```
+
+Leave that process running; it is the *head node*.
+
+### 3 – Use `RayExecutor` in your code
+
+```python
+from neo4j_graphrag.experimental.pipeline.executors import RayExecutor
+from neo4j_graphrag.experimental.pipeline.config.runner import PipelineRunner
+from pathlib import Path
+import asyncio
+
+# Read a pipeline config or build it programmatically (example: YAML file)
+runner = PipelineRunner.from_config_file("simple_kg_pipeline.yaml")
+
+# Replace default LocalExecutor by RayExecutor
+runner.pipeline.executor = RayExecutor(address="auto")  # "auto" = use RAY_ADDRESS env or local head
+
+async def main():
+    res = await runner.run({"file_path": "report.pdf"})
+    print(res)
+
+asyncio.run(main())
+```
+
+That’s it – every component call is now scheduled remotely; the driver process
+merely orchestrates the DAG.
+
+### 4 – Running on a multi-node cluster
+
+1. Start a head node on the first machine:
+
+   ```bash
+   ray start --head --port 6379 --dashboard-host 0.0.0.0
+   export RAY_ADDRESS="auto"   # optional convenience
+   ```
+
+2. On each worker machine:
+
+   ```bash
+   ray start --address head.node.ip:6379
+   ```
+
+3. Set the env var `RAY_ADDRESS="ray://head.node.ip:6379"` for any driver
+   process (your Python script, Jupyter, etc.) or pass the address explicitly
+   when instantiating `RayExecutor(address="ray://head.node.ip:6379")`.
+
+Ray will automatically schedule tasks across the cluster.  Monitor the web UI
+at `http://head.node.ip:8265`.
+
+### 5 – Tuning
+
+| Parameter                  | Where to set                                      | Default |
+|--------------------------- |---------------------------------------------------|---------|
+| `address`                  | `RayExecutor(address=…)`                          | `"auto"`|
+| Ray `num_cpus`, `num_gpus` | `ray start --head --num-cpus 16 --num-gpus 2`     | auto-detect |
+| Task resource requirements | annotate component with `@ray.remote` options¹    | n/a |
+
+¹ The spike implementation uses a single remote wrapper.  If you need fine-grain
+resource hints per component you can fork `executors.py` and set
+`@ray.remote(num_gpus=1)` accordingly.
+
+### 6 – Fallback behaviour
+
+If `ray` is **not** installed (or the import fails) `RayExecutor` gracefully
+falls back to local synchronous execution, identical to `LocalExecutor`.  This
+makes it safe to keep the same code path in CI or environments without Ray.
+
+### 7 – Troubleshooting
+
+* **`Ray connection failed`** – ensure `ray start --head` is running and the
+  address/port in `RayExecutor` matches the head node.
+* **Pickle errors** – every component class must be importable on the worker
+  nodes (they need the project code available).  Install your package in the
+  Python environment used by the Ray cluster.
+* **Neo4j driver auth timeout** – long-running remote components will each
+  create a new Neo4j driver instance.  For best performance turn the driver
+  into a singleton inside the component.
+
+---
+
+Enjoy blazing-fast distributed pipelines!  Feedback & PRs welcome while this
+feature matures.

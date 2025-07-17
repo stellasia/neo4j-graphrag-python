@@ -28,6 +28,7 @@ from neo4j_graphrag.experimental.pipeline.exceptions import (
     PipelineStatusUpdateError,
 )
 from neo4j_graphrag.experimental.pipeline.notification import EventNotifier
+from neo4j_graphrag.experimental.pipeline.executors import ExecutorProtocol
 from neo4j_graphrag.experimental.pipeline.types.orchestration import (
     RunResult,
     RunStatus,
@@ -54,6 +55,8 @@ class Orchestrator:
 
     def __init__(self, pipeline: Pipeline):
         self.pipeline = pipeline
+        # use execution backend defined on Pipeline
+        self.executor: ExecutorProtocol = pipeline.executor
         self.event_notifier = EventNotifier(pipeline.callbacks)
         self.run_id = str(uuid.uuid4())
 
@@ -86,7 +89,8 @@ class Orchestrator:
             task_name=task.name,
         )
         context = RunContext(run_id=self.run_id, task_name=task.name, notifier=notifier)
-        res = await task.run(context, inputs)
+        # delegate execution to the configured executor (local, ray, …)
+        res = await self.executor.submit(task, context, inputs)
         await self.set_task_status(task.name, RunStatus.DONE)
         await self.event_notifier.notify_task_finished(self.run_id, task.name, res)
         if res:

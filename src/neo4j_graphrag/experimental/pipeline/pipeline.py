@@ -42,7 +42,9 @@ from neo4j_graphrag.experimental.pipeline.pipeline_graph import (
     PipelineGraph,
     PipelineNode,
 )
+# NEW IMPORT for executors
 from neo4j_graphrag.experimental.pipeline.stores import InMemoryStore, ResultStore
+from neo4j_graphrag.experimental.pipeline.executors import ExecutorProtocol, LocalExecutor
 from neo4j_graphrag.experimental.pipeline.types.definitions import (
     ComponentDefinition,
     ConnectionDefinition,
@@ -122,9 +124,12 @@ class Pipeline(PipelineGraph[TaskPipelineNode, PipelineEdge]):
         self,
         store: Optional[ResultStore] = None,
         callback: Optional[EventCallbackProtocol] = None,
+        executor: Optional[ExecutorProtocol] = None,
     ) -> None:
         super().__init__()
         self.store = store or InMemoryStore()
+        # pick execution backend – LocalExecutor by default
+        self.executor: ExecutorProtocol = executor or LocalExecutor()
         self.callbacks = [callback] if callback else []
         self.final_results = InMemoryStore()
         self.is_validated = False
