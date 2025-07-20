@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import abc
 import json
+import os
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -50,10 +51,93 @@ from .types import (
     UserMessage,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 from neo4j_graphrag.tool import Tool
 
 if TYPE_CHECKING:
     import openai
+
+
+class LazyOpenAILLM:
+    """A lazy-loading wrapper for OpenAI LLM that defers client creation.
+    
+    This class stores the configuration needed to create an OpenAI LLM but doesn't
+    actually create the clients until they're used. This ensures the clients are 
+    created in the worker process, not the main process, avoiding serialization issues.
+    """
+    
+    def __init__(
+        self,
+        model_name: str,
+        model_params: Optional[dict[str, Any]] = None,
+        rate_limit_handler: Optional[RateLimitHandler] = None,
+        azure: bool = False,
+        **kwargs: Any,
+    ):
+        self._model_name = model_name
+        self._model_params = model_params
+        self._rate_limit_handler = rate_limit_handler
+        self._azure = azure
+        self._kwargs = kwargs
+        self._actual_llm: Optional[BaseOpenAILLM] = None
+        self._created_in_process_id = None
+    
+    def _ensure_llm(self) -> BaseOpenAILLM:
+        """Ensure we have an actual LLM, creating it if necessary."""
+        current_process_id = os.getpid()
+        
+        # Create LLM if it doesn't exist or we're in a different process (worker)
+        if self._actual_llm is None or self._created_in_process_id != current_process_id:
+            if self._azure:
+                self._actual_llm = AzureOpenAILLM(
+                    self._model_name,
+                    self._model_params,
+                    self._rate_limit_handler,
+                    **self._kwargs
+                )
+            else:
+                self._actual_llm = OpenAILLM(
+                    self._model_name,
+                    self._model_params,
+                    self._rate_limit_handler,
+                    **self._kwargs
+                )
+            
+            self._created_in_process_id = current_process_id
+            logger.debug(f"Created OpenAI LLM client in process {current_process_id}")
+        
+        return self._actual_llm
+    
+    # Delegate all LLMInterface methods to the actual LLM
+    def __getattr__(self, name: str) -> Any:
+        """Delegate to the actual OpenAI LLM, creating it if necessary."""
+        return getattr(self._ensure_llm(), name)
+    
+    # Support serialization for distributed execution
+    def __getstate__(self) -> dict:
+        """Custom serialization - only serialize config, not the actual clients."""
+        return {
+            '_model_name': self._model_name,
+            '_model_params': self._model_params,
+            '_rate_limit_handler': self._rate_limit_handler,
+            '_azure': self._azure,
+            '_kwargs': self._kwargs,
+            # Don't serialize the actual LLM or process ID
+        }
+    
+    def __setstate__(self, state: dict) -> None:
+        """Custom deserialization - restore config, LLM will be created on demand."""
+        self._model_name = state['_model_name']
+        self._model_params = state['_model_params']
+        self._rate_limit_handler = state['_rate_limit_handler']
+        self._azure = state['_azure']
+        self._kwargs = state['_kwargs']
+        self._actual_llm = None
+        self._created_in_process_id = None
 
 
 class BaseOpenAILLM(LLMInterface, abc.ABC):

@@ -122,8 +122,17 @@ class Neo4jWriter(KGWriter):
         self.neo4j_database = neo4j_database
         self.batch_size = batch_size
         self._clean_db = clean_db
-        version_tuple, _, _ = get_version(self.driver, self.neo4j_database)
-        self.is_version_5_23_or_above = is_version_5_23_or_above(version_tuple)
+        # Defer version check to avoid accessing driver during initialization
+        # This is crucial for distributed execution with lazy drivers
+        self._version_checked = False
+        self.is_version_5_23_or_above = False
+
+    def _ensure_version_checked(self) -> None:
+        """Ensure version has been checked, checking it if necessary."""
+        if not self._version_checked:
+            version_tuple, _, _ = get_version(self.driver, self.neo4j_database)
+            self.is_version_5_23_or_above = is_version_5_23_or_above(version_tuple)
+            self._version_checked = True
 
     def _db_setup(self) -> None:
         self.driver.execute_query("""
@@ -186,6 +195,7 @@ class Neo4jWriter(KGWriter):
         )
 
     def _db_cleaning(self) -> None:
+        self._ensure_version_checked()
         query = db_cleaning_query(
             support_variable_scope_clause=self.is_version_5_23_or_above,
             batch_size=self.batch_size,
@@ -206,6 +216,7 @@ class Neo4jWriter(KGWriter):
             lexical_graph_config (LexicalGraphConfig): Node labels and relationship types for the lexical graph.
         """
         try:
+            self._ensure_version_checked()
             self._db_setup()
 
             for batch in batched(graph.nodes, self.batch_size):

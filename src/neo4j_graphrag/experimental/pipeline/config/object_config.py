@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 from typing import (
     Any,
     ClassVar,
@@ -66,6 +67,91 @@ T = TypeVar("T")
 """Generic type to help mypy with the parse method when we know the exact
 expected return type (e.g. for the Neo4jDriverConfig below).
 """
+
+
+class LazyNeo4jDriver:
+    """A Neo4j driver that's created lazily in the worker process.
+    
+    This class stores the configuration needed to create a driver but doesn't
+    actually create it until it's used. This ensures the driver is created
+    in the worker process, not the main process, avoiding serialization issues.
+    
+    This integrates with the existing pipeline configuration system.
+    """
+    
+    def __init__(self, uri: str, user: str, password: str, **driver_kwargs):
+        self._uri = uri
+        self._user = user  
+        self._password = password
+        self._driver_kwargs = driver_kwargs
+        self._actual_driver: Optional[neo4j.Driver] = None
+        self._created_in_process_id = None
+    
+    def _ensure_driver(self) -> neo4j.Driver:
+        """Ensure we have an actual driver, creating it if necessary."""
+        current_process_id = os.getpid()
+        
+        # Create driver if it doesn't exist or we're in a different process (worker)
+        if self._actual_driver is None or self._created_in_process_id != current_process_id:
+            from neo4j_graphrag.utils import driver_config
+            
+            if self._actual_driver is not None:
+                # Close old driver if switching processes
+                try:
+                    self._actual_driver.close()
+                except:
+                    pass
+            
+            self._actual_driver = neo4j.GraphDatabase.driver(
+                self._uri, 
+                auth=(self._user, self._password), 
+                **self._driver_kwargs
+            )
+            
+            # Apply user agent override if it was stored in driver_kwargs
+            if 'user_agent' in self._driver_kwargs:
+                user_agent = self._driver_kwargs.pop('user_agent')  # Remove to avoid conflicts
+                self._actual_driver._pool.pool_config.user_agent = user_agent
+            else:
+                # Apply default user agent override
+                self._actual_driver = driver_config.override_user_agent(self._actual_driver)
+            
+            self._created_in_process_id = current_process_id
+            
+            logger.debug(f"Created Neo4j driver in process {current_process_id}")
+        
+        return self._actual_driver
+    
+    def close(self) -> None:
+        """Close the actual driver if it exists."""
+        if self._actual_driver is not None:
+            self._actual_driver.close()
+            self._actual_driver = None
+    
+    # Delegate all neo4j.Driver methods to the actual driver
+    def __getattr__(self, name: str) -> Any:
+        """Delegate to the actual Neo4j driver, creating it if necessary."""
+        return getattr(self._ensure_driver(), name)
+    
+    # Support serialization for distributed execution
+    def __getstate__(self) -> dict:
+        """Custom serialization - only serialize config, not the actual driver."""
+        return {
+            '_uri': self._uri,
+            '_user': self._user,
+            '_password': self._password,
+            '_driver_kwargs': self._driver_kwargs,
+            # Don't serialize the actual driver or process ID
+        }
+    
+    def __setstate__(self, state: dict) -> None:
+        """Custom deserialization - restore config, driver will be created on demand."""
+        self._uri = state['_uri']
+        self._user = state['_user']
+        self._password = state['_password']
+        self._driver_kwargs = state['_driver_kwargs']
+        self._actual_driver = None
+        self._created_in_process_id = None
 
 
 class ObjectConfig(AbstractConfig, Generic[T]):
@@ -151,7 +237,16 @@ class ObjectConfig(AbstractConfig, Generic[T]):
 
 
 class Neo4jDriverConfig(ObjectConfig[neo4j.Driver]):
+    """Configuration for Neo4j drivers with support for distributed execution.
+    
+    This configuration can create either regular drivers (for local execution)
+    or lazy drivers (for distributed execution) based on the lazy parameter.
+    """
+    
     REQUIRED_PARAMS = ["uri", "user", "password"]
+    
+    # Add lazy parameter to control driver creation behavior
+    lazy: bool = Field(default=True, description="Create lazy driver for distributed execution")
 
     @field_validator("class_", mode="before")
     @classmethod
@@ -162,85 +257,164 @@ class Neo4jDriverConfig(ObjectConfig[neo4j.Driver]):
         # not used
         return "not used"
 
-    def parse(self, resolved_data: dict[str, Any] | None = None) -> neo4j.Driver:
+    def parse(self, resolved_data: dict[str, Any] | None = None) -> Union[neo4j.Driver, LazyNeo4jDriver]:
+        """Parse the configuration into either a regular or lazy Neo4j driver."""
         params = self.resolve_params(self.params_)
         # we know these params are there because of the required params validator
         uri = params.pop("uri")
         user = params.pop("user")
         password = params.pop("password")
-        driver = neo4j.GraphDatabase.driver(uri, auth=(user, password), **params)
-        return driver
+        
+        if self.lazy:
+            # Create lazy driver for distributed execution
+            logger.debug("Creating lazy Neo4j driver for distributed execution")
+            return LazyNeo4jDriver(uri, user, password, **params)
+        else:
+            # Create regular driver for local execution
+            from neo4j_graphrag.utils import driver_config
+            driver = neo4j.GraphDatabase.driver(uri, auth=(user, password), **params)
+            return driver_config.override_user_agent(driver)
 
 
 # note: using the notation with RootModel + root: <type> field
 # instead of RootModel[<type>] for clarity
 # but this requires the type: ignore comment below
 class Neo4jDriverType(RootModel):  # type: ignore[type-arg]
-    """A model to wrap neo4j.Driver and Neo4jDriverConfig objects.
+    """A model to wrap neo4j.Driver, LazyNeo4jDriver and Neo4jDriverConfig objects.
 
-    The `parse` method always returns a neo4j.Driver.
+    The `parse` method always returns a neo4j.Driver or LazyNeo4jDriver.
     """
 
-    root: Union[neo4j.Driver, Neo4jDriverConfig]
+    root: Union[neo4j.Driver, LazyNeo4jDriver, Neo4jDriverConfig]
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def parse(self, resolved_data: dict[str, Any] | None = None) -> neo4j.Driver:
-        if isinstance(self.root, neo4j.Driver):
+    def parse(self, resolved_data: dict[str, Any] | None = None) -> Union[neo4j.Driver, LazyNeo4jDriver]:
+        if isinstance(self.root, (neo4j.Driver, LazyNeo4jDriver)):
             return self.root
         # self.root is a Neo4jDriverConfig object
         return self.root.parse(resolved_data)
 
 
 class LLMConfig(ObjectConfig[LLMInterface]):
-    """Configuration for any LLMInterface object.
+    """Configuration for any LLMInterface object with support for distributed execution.
 
     By default, will try to import from `neo4j_graphrag.llm`.
     """
 
     DEFAULT_MODULE = "neo4j_graphrag.llm"
     INTERFACE = LLMInterface
-
-
-class LLMType(RootModel):  # type: ignore[type-arg]
-    """A model to wrap LLMInterface and LLMConfig objects.
-
-    The `parse` method always returns an object inheriting from LLMInterface.
-    """
-
-    root: Union[LLMInterface, LLMConfig]
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    def parse(self, resolved_data: dict[str, Any] | None = None) -> LLMInterface:
-        if isinstance(self.root, LLMInterface):
-            return self.root
-        return self.root.parse(resolved_data)
+    
+    # Add lazy parameter to control LLM creation behavior
+    lazy: bool = Field(default=True, description="Create lazy LLM for distributed execution")
+    
+    def parse(self, resolved_data: dict[str, Any] | None = None) -> Union[LLMInterface, Any]:
+        """Parse the configuration into either a regular or lazy LLM."""
+        self._global_data = resolved_data or {}
+        logger.debug(f"OBJECT_CONFIG: parsing {self} using {resolved_data}")
+        if self.class_ is None:
+            raise ValueError(f"`class_` is required to parse object {self}")
+        
+        params = self.resolve_params(self.params_)
+        
+        # Check if this is an OpenAI LLM and we want lazy loading
+        if self.lazy and self.class_ in ["OpenAILLM", "AzureOpenAILLM"]:
+            from neo4j_graphrag.llm.openai_llm import LazyOpenAILLM
+            logger.debug("Creating lazy OpenAI LLM for distributed execution")
+            azure = self.class_ == "AzureOpenAILLM"
+            return LazyOpenAILLM(azure=azure, **params)
+        else:
+            # Use regular creation for other LLMs or when lazy=False
+            klass = self._get_class(self.class_, self.get_module())
+            if not issubclass_safe(klass, self.get_interface()):
+                raise ValueError(
+                    f"Invalid class '{klass}'. Expected a subclass of '{self.get_interface()}'"
+                )
+            try:
+                obj = klass(**params)
+            except TypeError as e:
+                logger.error(
+                    "OBJECT_CONFIG: failed to instantiate object due to improperly configured parameters"
+                )
+                raise e
+            return cast(LLMInterface, obj)
 
 
 class EmbedderConfig(ObjectConfig[Embedder]):
-    """Configuration for any Embedder object.
+    """Configuration for any Embedder object with support for distributed execution.
 
     By default, will try to import from `neo4j_graphrag.embeddings`.
     """
 
     DEFAULT_MODULE = "neo4j_graphrag.embeddings"
     INTERFACE = Embedder
+    
+    # Add lazy parameter to control embedder creation behavior
+    lazy: bool = Field(default=True, description="Create lazy embedder for distributed execution")
+    
+    def parse(self, resolved_data: dict[str, Any] | None = None) -> Union[Embedder, Any]:
+        """Parse the configuration into either a regular or lazy embedder."""
+        self._global_data = resolved_data or {}
+        logger.debug(f"OBJECT_CONFIG: parsing {self} using {resolved_data}")
+        if self.class_ is None:
+            raise ValueError(f"`class_` is required to parse object {self}")
+        
+        params = self.resolve_params(self.params_)
+        
+        # Check if this is an OpenAI embedder and we want lazy loading
+        if self.lazy and self.class_ in ["OpenAIEmbeddings", "AzureOpenAIEmbeddings"]:
+            from neo4j_graphrag.embeddings.openai import LazyOpenAIEmbeddings
+            logger.debug("Creating lazy OpenAI embeddings for distributed execution")
+            azure = self.class_ == "AzureOpenAIEmbeddings"
+            return LazyOpenAIEmbeddings(azure=azure, **params)
+        else:
+            # Use regular creation for other embedders or when lazy=False
+            klass = self._get_class(self.class_, self.get_module())
+            if not issubclass_safe(klass, self.get_interface()):
+                raise ValueError(
+                    f"Invalid class '{klass}'. Expected a subclass of '{self.get_interface()}'"
+                )
+            try:
+                obj = klass(**params)
+            except TypeError as e:
+                logger.error(
+                    "OBJECT_CONFIG: failed to instantiate object due to improperly configured parameters"
+                )
+                raise e
+            return cast(Embedder, obj)
 
 
-class EmbedderType(RootModel):  # type: ignore[type-arg]
-    """A model to wrap Embedder and EmbedderConfig objects.
+class LLMType(RootModel):  # type: ignore[type-arg]
+    """A model to wrap LLMInterface, LazyOpenAILLM and LLMConfig objects.
 
-    The `parse` method always returns an object inheriting from Embedder.
+    The `parse` method always returns a LLMInterface or lazy equivalent.
     """
 
-    root: Union[Embedder, EmbedderConfig]
+    root: Union[LLMInterface, LLMConfig, Any]  # Any for lazy types
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def parse(self, resolved_data: dict[str, Any] | None = None) -> Embedder:
-        if isinstance(self.root, Embedder):
+    def parse(self, resolved_data: dict[str, Any] | None = None) -> Union[LLMInterface, Any]:
+        if isinstance(self.root, LLMInterface) or hasattr(self.root, '_ensure_llm'):
             return self.root
+        # self.root is a LLMConfig object
+        return self.root.parse(resolved_data)
+
+
+class EmbedderType(RootModel):  # type: ignore[type-arg]
+    """A model to wrap Embedder, LazyOpenAIEmbeddings and EmbedderConfig objects.
+
+    The `parse` method always returns a Embedder or lazy equivalent.
+    """
+
+    root: Union[Embedder, EmbedderConfig, Any]  # Any for lazy types
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def parse(self, resolved_data: dict[str, Any] | None = None) -> Union[Embedder, Any]:
+        if isinstance(self.root, Embedder) or hasattr(self.root, '_ensure_embedder'):
+            return self.root
+        # self.root is a EmbedderConfig object
         return self.root.parse(resolved_data)
 
 

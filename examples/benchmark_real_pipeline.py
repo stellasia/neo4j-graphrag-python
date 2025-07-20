@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import List
 from dotenv import load_dotenv
 
+from neo4j_graphrag.experimental.pipeline.stores import RedisStore
+
 load_dotenv()
 
 from neo4j_graphrag.experimental.pipeline.config.runner import PipelineRunner
@@ -41,9 +43,10 @@ DEFAULT_TEXT = (
 
 async def build_runner(config_path: Path, executor_name: str) -> PipelineRunner:
     runner = PipelineRunner.from_config_file(config_path)
+    runner.pipeline.store = RedisStore()
     # Override executor
     if executor_name == "ray":
-        runner.pipeline.executor = RayExecutor(address="auto")
+        runner.pipeline.executor = RayExecutor(address="192.168.1.67:6399")
     else:
         runner.pipeline.executor = LocalExecutor()
     return runner
@@ -98,4 +101,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

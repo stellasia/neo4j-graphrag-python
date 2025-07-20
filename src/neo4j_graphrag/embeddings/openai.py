@@ -16,12 +16,16 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING, Any
+import os
+import logging
+from typing import TYPE_CHECKING, Any, Optional
 
 from neo4j_graphrag.embeddings.base import Embedder
 
 if TYPE_CHECKING:
     import openai
+
+logger = logging.getLogger(__name__)
 
 
 class BaseOpenAIEmbeddings(Embedder, abc.ABC):
@@ -90,3 +94,69 @@ class AzureOpenAIEmbeddings(BaseOpenAIEmbeddings):
 
     def _initialize_client(self, **kwargs: Any) -> Any:
         return self.openai.AzureOpenAI(**kwargs)
+
+
+class LazyOpenAIEmbeddings:
+    """A lazy-loading wrapper for OpenAI embeddings that defers client creation.
+    
+    This class stores the configuration needed to create an OpenAI embedder but doesn't
+    actually create the client until it's used. This ensures the client is created 
+    in the worker process, not the main process, avoiding serialization issues.
+    """
+    
+    def __init__(
+        self,
+        model: str = "text-embedding-ada-002",
+        azure: bool = False,
+        **kwargs: Any,
+    ):
+        self._model = model
+        self._azure = azure
+        self._kwargs = kwargs
+        self._actual_embedder: Optional[BaseOpenAIEmbeddings] = None
+        self._created_in_process_id = None
+    
+    def _ensure_embedder(self) -> BaseOpenAIEmbeddings:
+        """Ensure we have an actual embedder, creating it if necessary."""
+        current_process_id = os.getpid()
+        
+        # Create embedder if it doesn't exist or we're in a different process (worker)
+        if self._actual_embedder is None or self._created_in_process_id != current_process_id:
+            if self._azure:
+                self._actual_embedder = AzureOpenAIEmbeddings(
+                    self._model,
+                    **self._kwargs
+                )
+            else:
+                self._actual_embedder = OpenAIEmbeddings(
+                    self._model,
+                    **self._kwargs
+                )
+            
+            self._created_in_process_id = current_process_id
+            logger.debug(f"Created OpenAI embeddings client in process {current_process_id}")
+        
+        return self._actual_embedder
+    
+    # Delegate all Embedder methods to the actual embedder
+    def __getattr__(self, name: str) -> Any:
+        """Delegate to the actual OpenAI embedder, creating it if necessary."""
+        return getattr(self._ensure_embedder(), name)
+    
+    # Support serialization for distributed execution
+    def __getstate__(self) -> dict:
+        """Custom serialization - only serialize config, not the actual client."""
+        return {
+            '_model': self._model,
+            '_azure': self._azure,
+            '_kwargs': self._kwargs,
+            # Don't serialize the actual embedder or process ID
+        }
+    
+    def __setstate__(self, state: dict) -> None:
+        """Custom deserialization - restore config, embedder will be created on demand."""
+        self._model = state['_model']
+        self._azure = state['_azure']
+        self._kwargs = state['_kwargs']
+        self._actual_embedder = None
+        self._created_in_process_id = None

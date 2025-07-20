@@ -2,6 +2,7 @@
     "version_": "1",
     "template_": "SimpleKGPipeline",
     "neo4j_config": {
+        "lazy": true,
         "params_": {
             "uri": {
                 "resolver_": "ENV",

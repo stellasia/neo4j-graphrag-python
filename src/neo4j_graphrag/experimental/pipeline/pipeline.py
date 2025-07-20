@@ -42,7 +42,6 @@ from neo4j_graphrag.experimental.pipeline.pipeline_graph import (
     PipelineGraph,
     PipelineNode,
 )
-# NEW IMPORT for executors
 from neo4j_graphrag.experimental.pipeline.stores import InMemoryStore, ResultStore
 from neo4j_graphrag.experimental.pipeline.executors import ExecutorProtocol, LocalExecutor
 from neo4j_graphrag.experimental.pipeline.types.definitions import (

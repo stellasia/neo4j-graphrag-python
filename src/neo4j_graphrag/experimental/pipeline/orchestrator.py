@@ -88,7 +88,7 @@ class Orchestrator:
             run_id=self.run_id,
             task_name=task.name,
         )
-        context = RunContext(run_id=self.run_id, task_name=task.name, notifier=notifier)
+        context = RunContext(run_id=self.run_id, task_name=task.name)  # , notifier=notifier)
         # delegate execution to the configured executor (local, ray, …)
         res = await self.executor.submit(task, context, inputs)
         await self.set_task_status(task.name, RunStatus.DONE)

@@ -15,7 +15,7 @@
 from pydantic import BaseModel, ConfigDict
 from collections.abc import Awaitable
 
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Optional, Protocol, runtime_checkable, ClassVar
 
 
 @runtime_checkable
@@ -34,7 +34,8 @@ class RunContext(BaseModel):
 
     run_id: str
     task_name: str
-    notifier: Optional[TaskProgressNotifierProtocol] = None
+    # notifier: Optional[TaskProgressNotifierProtocol] = None
+    notifier: ClassVar[None] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
