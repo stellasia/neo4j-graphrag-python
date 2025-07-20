@@ -19,6 +19,7 @@ and in-memory store implementation.
 from __future__ import annotations
 
 import abc
+import json
 import asyncio
 from typing import Any
 
@@ -115,3 +116,20 @@ class InMemoryStore(ResultStore):
 
     def empty(self) -> None:
         self._data = {}
+
+
+class RedisStore(ResultStore):
+    def __init__(self, host: str = "localhost", port: int = 6379, db: int = 0, **kwargs) -> None:
+        super().__init__()
+        import redis
+        self._client = redis.Redis(host=host, port=port, db=db, **kwargs)
+
+    async def add(self, key: str, value: Any, overwrite: bool = True) -> None:
+        serialized = json.dumps(value)
+        self._client.set(self.get_key(key, key), serialized)
+
+    async def get(self, key: str) -> Any:
+        serialized = self._client.get(self.get_key(key, key))
+        if serialized:
+            return json.loads(serialized)
+        return None
