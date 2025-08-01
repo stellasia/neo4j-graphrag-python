@@ -12,6 +12,7 @@ from pathlib import Path
 
 import neo4j
 from neo4j_graphrag.embeddings import OpenAIEmbeddings
+from neo4j_graphrag.experimental.components.kg_writer import CsVWriter
 from neo4j_graphrag.experimental.pipeline.kg_builder import SimpleKGPipeline
 from neo4j_graphrag.experimental.pipeline.pipeline import PipelineResult
 from neo4j_graphrag.llm import LLMInterface
@@ -53,6 +54,8 @@ async def define_and_run_pipeline(
             "patterns": PATTERNS,
         },
         neo4j_database=DATABASE,
+        kg_writer=CsVWriter(),
+        perform_entity_resolution=False,
     )
     return await kg_builder.run_async(file_path=str(file_path))
 

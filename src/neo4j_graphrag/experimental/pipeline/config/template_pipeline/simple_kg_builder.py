@@ -319,6 +319,7 @@ class SimpleKGPipelineConfig(TemplatePipelineConfig):
                 end="writer",
                 input_config={
                     "graph": "pruner.graph",
+                    "schema": "schema",
                 },
             )
         )

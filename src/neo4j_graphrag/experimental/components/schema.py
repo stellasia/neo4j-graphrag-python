@@ -111,6 +111,12 @@ class NodeType(BaseModel):
             )
         return self
 
+    def property_from_name(self, prop_name: str) -> PropertyType | None:
+        for prop in self.properties:
+            if prop.name == prop_name:
+                return prop
+        return None
+
 
 class RelationshipType(BaseModel):
     """
@@ -140,6 +146,12 @@ class RelationshipType(BaseModel):
                 f"Define some properties or remove this RelationshipType: {self}"
             )
         return self
+
+    def property_from_name(self, prop_name: str) -> PropertyType | None:
+        for prop in self.properties:
+            if prop.name == prop_name:
+                return prop
+        return None
 
 
 class GraphSchema(DataModel):

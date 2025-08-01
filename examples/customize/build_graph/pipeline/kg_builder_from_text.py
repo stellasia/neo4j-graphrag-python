@@ -82,7 +82,10 @@ async def define_and_run_pipeline(
     pipe.connect(
         "extractor",
         "writer",
-        input_config={"graph": "extractor"},
+        input_config={
+            "graph": "extractor",
+            "schema": "schema"
+        },
     )
     # user input:
     # the initial text

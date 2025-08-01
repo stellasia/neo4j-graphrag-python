@@ -128,7 +128,10 @@ async def read_chunk_and_perform_entity_extraction(
     pipe.connect(
         "extractor",
         "writer",
-        input_config={"graph": "extractor"},
+        input_config={
+            "graph": "extractor",
+            "schema": "schema"
+        },
     )
     # user input:
     # the initial text
