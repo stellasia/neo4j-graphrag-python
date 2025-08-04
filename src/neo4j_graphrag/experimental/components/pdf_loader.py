@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import io
+import warnings
 from abc import abstractmethod
 from pathlib import Path
 from typing import Dict, Optional, Union
@@ -41,7 +42,7 @@ class DataLoader(Component):
 
     @abstractmethod
     async def run(
-        self, filepath: Path, metadata: Optional[Dict[str, str]] = None
+        self, file_path: Path, metadata: Optional[Dict[str, str]] = None
     ) -> PdfDocument:
         pass
 
@@ -73,21 +74,30 @@ class PdfLoader(DataLoader):
 
     async def run(
         self,
-        filepath: Union[str, Path],
+        filepath: Optional[Union[str, Path]] = None,
+        file_path: Optional[Union[str, Path]] = None,
         metadata: Optional[Dict[str, str]] = None,
         fs: Optional[Union[AbstractFileSystem, str]] = None,
     ) -> PdfDocument:
-        if not isinstance(filepath, str):
-            filepath = str(filepath)
+        if filepath:
+            warnings.warn(
+                "Using filepath is deprecated. Please use file_path instead.",
+                DeprecationWarning,
+            )
+            file_path = filepath
+        if file_path is None:
+            raise ValueError("file_path is a required parameter")
+        if not isinstance(file_path, str):
+            file_path = str(file_path)
         if isinstance(fs, str):
             fs = fsspec.filesystem(fs)
         elif fs is None:
             fs = LocalFileSystem()
-        text = self.load_file(filepath, fs)
+        text = self.load_file(file_path, fs)
         return PdfDocument(
             text=text,
             document_info=DocumentInfo(
-                path=filepath,
+                path=file_path,
                 metadata=self.get_document_metadata(text, metadata),
             ),
         )

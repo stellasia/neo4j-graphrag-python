@@ -114,7 +114,7 @@ async def define_and_run_pipeline(
 
     pipe_inputs = {
         "pdf_loader": {
-            "filepath": "examples/data/Harry Potter and the Death Hallows Summary.pdf"
+            "file_path": "examples/data/Harry Potter and the Death Hallows Summary.pdf"
         },
         "schema": {
             "node_types": node_types,

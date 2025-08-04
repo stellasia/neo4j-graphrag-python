@@ -10,14 +10,14 @@ from neo4j_graphrag.experimental.components.types import DocumentInfo, PdfDocume
 class MyLoader(DataLoader):
     async def run(
         self,
-        filepath: Path,
+        file_path: Path,
         metadata: Optional[Dict[str, str]] = None,
     ) -> PdfDocument:
         # Implement logic here
         return PdfDocument(
             text="<extracted text>",
             document_info=DocumentInfo(
-                path=str(filepath),
+                path=str(file_path),
                 # optionally, add some metadata as a dict
                 metadata=None,
             ),

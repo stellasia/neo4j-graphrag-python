@@ -9,7 +9,7 @@ url = "https://raw.githubusercontent.com/neo4j/neo4j-graphrag-python/c166afc4d5a
 
 async def main() -> None:
     loader = PdfLoader()
-    document = await loader.run(filepath=url, fs="http")
+    document = await loader.run(file_path=url, fs="http")
     print(document.text[:100])
 
 

@@ -53,7 +53,7 @@ async def test_knowledge_graph_builder_document_info_with_file(_: Mock) -> None:
 
         pipe_inputs = mock_run.call_args[1]["data"]
         assert "pdf_loader" in pipe_inputs
-        assert pipe_inputs["pdf_loader"] == {"filepath": file_path}
+        assert pipe_inputs["pdf_loader"] == {"file_path": file_path}
         assert "extractor" not in pipe_inputs
 
 

@@ -11,7 +11,7 @@ file_path = root_dir / "data" / "Harry Potter and the Chamber of Secrets Summary
 
 async def main() -> None:
     loader = PdfLoader()
-    document = await loader.run(filepath=file_path)
+    document = await loader.run(file_path=file_path)
     print(document.text[:200])
     print(document.document_info)
 

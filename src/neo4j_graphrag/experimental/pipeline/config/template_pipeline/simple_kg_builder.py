@@ -358,7 +358,7 @@ class SimpleKGPipelineConfig(TemplatePipelineConfig):
                 raise PipelineDefinitionError(
                     "Expected 'file_path' argument when 'from_pdf' is True."
                 )
-            run_params["pdf_loader"] = {"filepath": file_path}
+            run_params["pdf_loader"] = {"file_path": file_path}
         else:
             if not text:
                 raise PipelineDefinitionError(

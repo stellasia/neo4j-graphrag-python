@@ -132,7 +132,7 @@ async def define_and_run_pipeline(
         "examples/data/Harry Potter and the Chamber of Secrets Summary.pdf",
         "examples/data/Harry Potter and the Death Hallows Summary.pdf",
     ]:
-        pipe_inputs["loader"]["filepath"] = document
+        pipe_inputs["loader"]["file_path"] = document
         await pipe.run(pipe_inputs)
 
 
