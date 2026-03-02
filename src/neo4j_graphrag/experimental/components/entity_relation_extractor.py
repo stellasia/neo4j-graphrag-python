@@ -247,9 +247,21 @@ class LLMEntityRelationExtractor(EntityRelationExtractor):
                 )
 
             messages = [LLMMessage(role="user", content=prompt)]
-            llm_result = await self.llm.ainvoke(messages, response_format=Neo4jGraph)  # type: ignore[call-arg, arg-type]
+            # If we have a custom response_format, we use it
+            # This is experimental and allows for schema-driven structured output
+            response_format = getattr(schema, "_pydantic_model", Neo4jGraph)
+            llm_result = await self.llm.ainvoke(
+                messages, response_format=response_format
+            )
             try:
-                chunk_graph = Neo4jGraph.model_validate_json(llm_result.content)
+                if response_format == Neo4jGraph:
+                    chunk_graph = Neo4jGraph.model_validate_json(llm_result.content)
+                else:
+                    # If we used a custom model, we map it back to Neo4jGraph
+                    extracted_data = response_format.model_validate_json(
+                        llm_result.content
+                    )
+                    chunk_graph = self._map_dynamic_model_to_neo4j_graph(extracted_data)
             except ValidationError as e:
                 if self.on_error == OnError.RAISE:
                     raise LLMGenerationError("LLM response has improper format") from e
@@ -388,3 +400,42 @@ class LLMEntityRelationExtractor(EntityRelationExtractor):
         graph = self.combine_chunk_graphs(lexical_graph, chunk_graphs)
         logger.debug(f"Extracted graph: {prettify(graph)}")
         return graph
+
+    def _map_dynamic_model_to_neo4j_graph(self, extracted_data: Any) -> Neo4jGraph:
+        """Map the dynamically generated Pydantic model back to Neo4jGraph."""
+        from neo4j_graphrag.experimental.components.types import (
+            Neo4jGraph,
+            Neo4jNode,
+            Neo4jRelationship,
+        )
+
+        nodes = []
+        for node_data in extracted_data.nodes:
+            # node_data is a Pydantic model for a specific node type
+            # We convert it to Neo4jNode
+            props = node_data.model_dump()
+            label = props.pop("label")
+            node_id = props.pop("id")
+            nodes.append(Neo4jNode(id=node_id, label=label, properties=props))
+
+        relationships = []
+        for rel_data in extracted_data.relationships:
+            # rel_data is a Pydantic model for a specific relationship pattern
+            props = rel_data.model_dump()
+            rel_type = props.pop("label")
+            source_id = props.pop("source_id")
+            target_id = props.pop("target_id")
+            # These might be present in pattern-based models
+            props.pop("source_label", None)
+            props.pop("target_label", None)
+
+            relationships.append(
+                Neo4jRelationship(
+                    start_node_id=source_id,
+                    end_node_id=target_id,
+                    type=rel_type,
+                    properties=props,
+                )
+            )
+
+        return Neo4jGraph(nodes=nodes, relationships=relationships)

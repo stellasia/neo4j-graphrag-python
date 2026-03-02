@@ -89,6 +89,7 @@ class PropertyType(BaseModel):
     ]
     description: str = ""
     required: bool = False
+    values: list[Any] = Field(default_factory=list)
     model_config = ConfigDict(
         frozen=True,
     )
