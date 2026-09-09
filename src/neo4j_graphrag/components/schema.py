@@ -59,7 +59,7 @@ from neo4j_graphrag.experimental.pipeline.types.schema import (
     EntityInputType,
     RelationInputType,
 )
-from neo4j_graphrag.generation import PromptTemplate, SchemaExtractionTemplate
+from neo4j_graphrag.generation import SchemaExtractionTemplate
 from neo4j_graphrag.llm import LLMInterface
 from neo4j_graphrag.schema import get_structured_schema
 from neo4j_graphrag.types import LLMMessage
@@ -1853,11 +1853,7 @@ class SchemaFromTextExtractor(BaseSchemaBuilder):
 
     @validate_call
     async def run(
-        self,
-        text: str,
-        examples: str = "",
-        user_instructions: str = "",
-        **kwargs: Any
+        self, text: str, examples: str = "", user_instructions: str = "", **kwargs: Any
     ) -> GraphSchema:
         """
         Asynchronously extracts the schema from text and returns a GraphSchema object.

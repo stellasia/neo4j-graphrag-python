@@ -238,7 +238,11 @@ class LLMEntityRelationExtractor(EntityRelationExtractor):
         self.prompt_template = template
 
     async def extract_for_chunk(
-        self, schema: GraphSchema, examples: str, chunk: TextChunk, user_instructions: str = "",
+        self,
+        schema: GraphSchema,
+        examples: str,
+        chunk: TextChunk,
+        user_instructions: str = "",
     ) -> Neo4jGraph:
         """Run entity extraction for a given text chunk."""
         prompt = self.prompt_template.format(
@@ -337,7 +341,9 @@ class LLMEntityRelationExtractor(EntityRelationExtractor):
     ) -> Neo4jGraph:
         """Run extraction, validation and post processing for a single chunk"""
         async with sem:
-            chunk_graph = await self.extract_for_chunk(schema, examples, chunk, user_instructions)
+            chunk_graph = await self.extract_for_chunk(
+                schema, examples, chunk, user_instructions
+            )
             # final_chunk_graph = self.validate_chunk(chunk_graph, schema)
             await self.post_process_chunk(
                 chunk_graph,
